@@ -1,0 +1,451 @@
+@import "tailwindcss";
+/* Game HUD and lite page styles join the components layer here, after Tailwind's reset,
+   so the reset can never win over them (importing them from components could load
+   them first and flip the layer order). */
+@import "../components/game/game.css";
+@import "../components/lite/lite.css";
+
+@theme {
+  --color-ink: #07070a;
+  --color-ink-2: #0e0d12;
+  --color-paper: #efe6d2;
+  --color-muted: #9a917f;
+  --color-subtle: #5f594f;
+  --color-gold: #e0a83e;
+  --color-gold-hi: #ffd27a;
+  --color-ember: #e2582b;
+  --font-display: var(--font-pixel-display), "Times New Roman", serif;
+  --font-sans: var(--font-pixel-body), system-ui, sans-serif;
+  --font-label: var(--font-pixel-label), system-ui, sans-serif;
+  --font-hand: var(--font-pixel-hand), "Segoe Print", cursive;
+  --font-digits: var(--font-pixel-digits), ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-ink);
+    color: var(--color-paper);
+    font-family: var(--font-sans);
+    /* Pixel faces come in one weight: never fake a bold */
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  body {
+    min-height: 100dvh;
+    overflow-x: clip;
+  }
+  ::selection {
+    background: var(--color-gold);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-gold-hi);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  /* Small uppercase label */
+  /* Pixel caps label (Silkscreen is wide already, so little extra spacing) */
+  .label {
+    font-family: var(--font-label);
+    font-weight: 400;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 0.95;
+  }
+  .gold-text,
+  .gold-text .rw > span {
+    background-image: linear-gradient(100deg, #8a5a1c 0%, var(--color-gold) 30%, var(--color-gold-hi) 50%, var(--color-gold) 70%, #8a5a1c 100%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: sheen 9s ease-in-out infinite;
+  }
+
+  /* Word-by-word reveal (RevealText): each word slides up out of a mask. */
+  .rw {
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: top;
+    padding-bottom: 0.08em;
+    margin-bottom: -0.08em;
+  }
+  .rw > span {
+    display: inline-block;
+    will-change: transform;
+  }
+  .js-motion .rw > span {
+    transform: translateY(105%);
+  }
+
+  /* Buttons: cut corners, like the SIC site */
+  .cta {
+    --cut: 14px;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 1.05rem 2.1rem;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+    background: linear-gradient(100deg, var(--color-gold), var(--color-gold-hi), var(--color-gold));
+    background-size: 200% 100%;
+    clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+    transition: background-position 0.6s ease, transform 0.25s ease, filter 0.25s;
+  }
+  .cta:hover {
+    background-position: 100% 0;
+    transform: translateY(-2px);
+    filter: drop-shadow(0 0 1.2rem rgb(224 168 62 / 0.45));
+  }
+  .ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-label);
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--color-paper);
+    padding: 0.55rem 0.9rem;
+    border: 1px solid rgb(239 230 210 / 0.22);
+    transition: border-color 0.2s, color 0.2s, background-color 0.2s;
+  }
+  .ghost:hover {
+    border-color: var(--color-gold);
+    color: var(--color-gold-hi);
+  }
+
+  /* Film grain, light leaks and vignette sit above the 3D scene, below the text. */
+  .grain {
+    position: fixed;
+    inset: -50%;
+    z-index: 40;
+    pointer-events: none;
+    opacity: 0.075;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    animation: grain 0.9s steps(6) infinite;
+  }
+  .leaks {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    overflow: hidden;
+    mix-blend-mode: screen;
+    opacity: var(--leak, 0.55);
+    transition: opacity 1.2s ease;
+  }
+  .leaks i {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(80px);
+  }
+  .leaks i:nth-child(1) {
+    width: 55vmax;
+    height: 40vmax;
+    left: -18vmax;
+    top: -14vmax;
+    background: radial-gradient(closest-side, rgb(226 88 43 / 0.55), transparent);
+    animation: leak-a 22s ease-in-out infinite alternate;
+  }
+  .leaks i:nth-child(2) {
+    width: 45vmax;
+    height: 45vmax;
+    right: -20vmax;
+    bottom: -18vmax;
+    background: radial-gradient(closest-side, rgb(224 168 62 / 0.45), transparent);
+    animation: leak-b 28s ease-in-out infinite alternate;
+  }
+  .leaks i:nth-child(3) {
+    width: 30vmax;
+    height: 22vmax;
+    right: 10vmax;
+    top: 20vh;
+    background: radial-gradient(closest-side, rgb(255 210 122 / 0.25), transparent);
+    animation: leak-c 17s ease-in-out infinite alternate;
+  }
+  .vignette {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgb(0 0 0 / 0.75));
+  }
+  .scene-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  /* Scrapbook pieces (Collage.tsx) */
+  .collage {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .piece {
+    position: absolute;
+    will-change: transform;
+  }
+  .piece-inner {
+    position: relative;
+    transform: rotate(var(--rot, 0deg));
+    animation: sway 7s ease-in-out infinite alternate;
+    filter: drop-shadow(0 14px 18px rgb(0 0 0 / 0.45));
+  }
+  .piece:nth-child(2n) .piece-inner {
+    animation-duration: 9s;
+    animation-delay: -3s;
+  }
+  .piece img {
+    display: block;
+    width: 100%;
+    height: auto;
+    user-select: none;
+  }
+  /* Handwriting on paper */
+  .hand {
+    position: absolute;
+    inset: 18% 12% 14%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-family: var(--font-hand);
+    font-weight: 700;
+    font-size: clamp(1.15rem, 1.7vw, 1.9rem);
+    line-height: 1.05;
+    color: #2a2118;
+  }
+  .hand-lines {
+    inset: 12% 14% 10% 20%;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 0.35em;
+    text-align: left;
+    font-size: clamp(1.05rem, 1.55vw, 1.7rem);
+    color: #23344f;
+  }
+  /* Polaroid-style photo prints (Print in Collage.tsx) */
+  .print {
+    padding: 0.55rem 0.55rem 0;
+    background: #f4efe4;
+  }
+  .print-photo {
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    filter: sepia(0.22) saturate(0.95) contrast(1.06);
+  }
+  .print-caption {
+    display: block;
+    padding: 0.35rem 0.2rem 0.55rem;
+    text-align: center;
+    font-family: var(--font-hand);
+    font-weight: 700;
+    font-size: clamp(1rem, 1.35vw, 1.5rem);
+    line-height: 1.1;
+    color: #2a2118;
+  }
+  .print:not(:has(.print-caption)) {
+    padding-bottom: 0.55rem;
+  }
+  .print .print-tape {
+    position: absolute;
+    left: 50%;
+    top: -1.1rem;
+    width: 45%;
+    translate: -50% 0;
+    rotate: -4deg;
+    filter: none;
+  }
+  /* Event photo next to each event in the three days */
+  .event-thumb {
+    width: clamp(3.4rem, 12vw, 4.75rem);
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    padding: 0.2rem;
+    background: #f4efe4;
+    rotate: -3deg;
+    filter: sepia(0.2) contrast(1.05);
+    box-shadow: 0 8px 14px rgb(0 0 0 / 0.45);
+  }
+  .event-row:nth-child(even) .event-thumb {
+    rotate: 3deg;
+  }
+  /* The whole club, faintly, behind the final frame */
+  .final-photo {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.2;
+    filter: grayscale(1) sepia(0.5) contrast(1.1);
+    mask-image: radial-gradient(ellipse at 50% 45%, #000 20%, transparent 72%);
+    pointer-events: none;
+  }
+
+  /* A line of copy printed on a torn strip of kraft paper */
+  .on-paper {
+    display: inline-block;
+    padding: 0.55em 1.1em 0.6em;
+    color: #22190f;
+    background: url("/collage/paper-torn-04.webp") center / 100% 100% no-repeat;
+    filter: drop-shadow(0 12px 16px rgb(0 0 0 / 0.5));
+    transform: rotate(-1.5deg);
+  }
+  .on-paper .rw > span {
+    background: none;
+    color: #22190f;
+  }
+  /* The taped empty frame in the epilogue */
+  .photo-frame {
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 4 / 3;
+    border: 2px dashed rgb(239 230 210 / 0.35);
+    background: rgb(239 230 210 / 0.04);
+    transform: rotate(2deg);
+  }
+
+  /* Chapter rail on the right */
+  .rail a {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.7rem;
+    font-family: var(--font-label);
+    font-weight: 600;
+    font-size: 0.68rem;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--color-subtle);
+    transition: color 0.3s;
+  }
+  .rail a span {
+    opacity: 0;
+    transform: translateX(6px);
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  .rail a::after {
+    content: "";
+    width: 18px;
+    height: 1px;
+    background: currentColor;
+    transition: width 0.3s;
+  }
+  .rail a:hover span,
+  .rail a[aria-current="true"] span {
+    opacity: 1;
+    transform: none;
+  }
+  .rail a[aria-current="true"] {
+    color: var(--color-gold-hi);
+  }
+  .rail a[aria-current="true"]::after {
+    width: 36px;
+  }
+
+  /* Three-day timeline: horizontal on wide screens */
+  .days-track {
+    display: flex;
+    flex-direction: column;
+    gap: 6rem;
+  }
+  @media (min-width: 900px) {
+    .js-motion .days-pin {
+      height: 100dvh;
+      overflow: hidden;
+    }
+    .js-motion .days-track {
+      flex-direction: row;
+      gap: 0;
+      width: max-content;
+      height: 100%;
+    }
+    .js-motion .day-panel {
+      width: 100vw;
+      height: 100%;
+    }
+  }
+  .event-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.25rem 1rem;
+    align-items: center;
+    padding: 1rem 0;
+    border-top: 1px solid rgb(239 230 210 / 0.12);
+  }
+  .event-row:last-child {
+    border-bottom: 1px solid rgb(239 230 210 / 0.12);
+  }
+}
+
+/* If scripts never start the reveal, show the words after a moment anyway. */
+.js-motion:not(.motion-ready) .rw > span {
+  animation: rw-show 0.6s 2.5s ease-out forwards;
+}
+@keyframes rw-show {
+  to { transform: none; }
+}
+@keyframes eq {
+  from { height: 3px; }
+  to { height: 12px; }
+}
+@keyframes sway {
+  from { rotate: -0.8deg; translate: 0 0; }
+  to { rotate: 0.8deg; translate: 0 -6px; }
+}
+@keyframes sheen {
+  0%, 100% { background-position: 0% 0; }
+  50% { background-position: 100% 0; }
+}
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-3%, 2%); }
+  40% { transform: translate(2%, -3%); }
+  60% { transform: translate(-2%, -1%); }
+  80% { transform: translate(3%, 2%); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes leak-a { to { transform: translate(14vmax, 10vmax) scale(1.15); } }
+@keyframes leak-b { to { transform: translate(-12vmax, -8vmax) scale(0.9); } }
+@keyframes leak-c { to { transform: translate(-20vmax, 18vh) scale(1.3); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .grain,
+  .leaks i,
+  .gold-text,
+  .piece-inner {
+    animation: none;
+  }
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<defs>
+  <filter id="rough" x="-10%" y="-10%" width="120%" height="120%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="2" seed="8" result="noise"/>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.8" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</defs>
+<g transform="rotate(-2 160.0 160.0)" filter="url(#rough)" opacity="0.94">
+
+  <circle cx="160" cy="160" r="143" fill="none" stroke="#173f78" stroke-width="9" stroke-dasharray="620 9 40 8" />
+  <circle cx="160" cy="160" r="130" fill="none" stroke="#173f78" stroke-width="3" stroke-dasharray="3 7" />
+  <path d="M160 32 l10 20 22 3 -16 15 4 22 -20 -11 -20 11 4 -22 -16 -15 22 -3z" fill="#173f78"/>
+  <path d="M160 238 l10 20 22 3 -16 15 4 22 -20 -11 -20 11 4 -22 -16 -15 22 -3z" fill="#173f78"/>
+  <rect x="16" y="105" width="288" height="110" rx="10" fill="none" stroke="#173f78" stroke-width="11"/>
+  <rect x="25" y="114" width="270" height="92" rx="6" fill="none" stroke="#173f78" stroke-width="3" stroke-dasharray="7 5"/>
+  <text x="160" y="181" text-anchor="middle" font-family="Impact, 'Arial Narrow', sans-serif" font-size="58" font-weight="900" letter-spacing="-1" fill="#173f78">DAY 02</text>
+
+</g>
+</svg>

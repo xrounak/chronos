@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="220" viewBox="0 0 420 220">
+<defs>
+  <filter id="rough" x="-10%" y="-10%" width="120%" height="120%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="2" seed="8" result="noise"/>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.8" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</defs>
+<g transform="rotate(-2 210.0 110.0)" filter="url(#rough)" opacity="0.94">
+
+  <rect x="18" y="28" width="384" height="164" rx="12" fill="none" stroke="#68418b" stroke-width="12" stroke-dasharray="320 8 35 5"/>
+  <rect x="29" y="39" width="362" height="142" rx="7" fill="none" stroke="#68418b" stroke-width="3" stroke-dasharray="5 5"/>
+  <path d="M47 84 l55 55 M102 84 l-55 55" stroke="#68418b" stroke-width="9"/><circle cx="74" cy="111" r="35" fill="none" stroke="#68418b" stroke-width="4"/>
+  <text x="230" y="135" text-anchor="start" font-family="Impact, 'Arial Narrow', sans-serif" font-size="65" font-weight="900" letter-spacing="-2" fill="#68418b">BUILT</text>
+
+</g>
+</svg>
