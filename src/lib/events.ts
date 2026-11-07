@@ -31,6 +31,8 @@ export type ShowEvent = {
   endsAt: string | null;
   /** Registration on sic.gecp.in, or null while the event is not published there yet. */
   registerUrl: string | null;
+  /** The event page's rule book on sic.gecp.in, or null while the event is not published there yet. */
+  detailsUrl: string | null;
   team: string | null;
   photo: string | null;
 };
@@ -64,6 +66,7 @@ async function fetchFestivalEvents(): Promise<DbEvent[]> {
 }
 
 const registerUrl = (slug: string | null) => (slug ? `${MAIN_SITE}/events/${slug}?from=chronos` : null);
+const detailsUrl = (slug: string | null) => (slug ? `${MAIN_SITE}/events/${slug}?from=chronos#rule-book` : null);
 const teamLabel = (e: DbEvent) =>
   e.participation === "team" ? `Teams of ${e.team_min ?? 1}–${e.team_max ?? e.team_min ?? 1}` : null;
 
@@ -89,6 +92,7 @@ export async function getFestival(): Promise<ShowDay[]> {
         startsAt: found?.starts_at ?? null,
         endsAt: found?.ends_at ?? null,
         registerUrl: registerUrl(found?.slug ?? null),
+        detailsUrl: detailsUrl(found?.slug ?? null),
         team: found ? teamLabel(found) : null,
         photo: item.photo ?? null,
       };
@@ -107,6 +111,7 @@ export async function getFestival(): Promise<ShowDay[]> {
       startsAt: e.starts_at,
       endsAt: e.ends_at,
       registerUrl: registerUrl(e.slug),
+      detailsUrl: detailsUrl(e.slug),
       team: teamLabel(e),
       photo: null,
     });

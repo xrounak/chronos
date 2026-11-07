@@ -639,6 +639,11 @@ export function World({ days }: { days: ShowDay[] }) {
               <p className="label mt-1 text-[0.6rem] opacity-70">{[current.venue, current.date.split(" · ")[0], time(current.startsAt), current.team].filter(Boolean).join(" · ")}</p>
               {current.summary && <p className="mt-2 line-clamp-2 text-sm leading-snug">{current.summary}</p>}
             </div>
+            {current.detailsUrl && (
+              <a className="chip zone-details" href={current.detailsUrl} target="_blank" rel="noopener noreferrer">
+                Rule book
+              </a>
+            )}
             {current.registerUrl ? (
               <a
                 className="sticker"
@@ -869,6 +874,11 @@ export function World({ days }: { days: ShowDay[] }) {
                         <button type="button" className="chip" onClick={() => goTo(e.id)}>
                           Drive there
                         </button>
+                      )}
+                      {e.detailsUrl && (
+                        <a className="chip" href={e.detailsUrl} target="_blank" rel="noopener noreferrer">
+                          Details
+                        </a>
                       )}
                       {e.registerUrl ? (
                         <a className="chip chip-solid" href={e.registerUrl} onClick={() => trackRegister(e.name, "3d-list")}>

@@ -807,3 +807,19 @@
     display: none;
   }
 }
+
+@layer components {
+  .event-tile-details {
+    margin-top: auto;
+    padding-top: 0.3rem;
+    font-family: var(--font-label);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    color: var(--blue);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .event-tile-details + .event-tile-cta {
+    margin-top: 0.4rem;
+  }
+}

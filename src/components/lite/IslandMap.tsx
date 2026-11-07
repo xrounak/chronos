@@ -138,6 +138,11 @@ export function IslandMap({ days }: { days: ShowDay[] }) {
                   Opens soon
                 </a>
               )}
+              {cur.detailsUrl && (
+                <a href={cur.detailsUrl} className="chip" target="_blank" rel="noopener noreferrer">
+                  Rule book
+                </a>
+              )}
               <Link href="/" className="chip">
                 See it in 3D
               </Link>
