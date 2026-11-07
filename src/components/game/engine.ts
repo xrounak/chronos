@@ -31,13 +31,17 @@ export type WorldCallbacks = {
 };
 
 export type WorldHandle = {
-  /** Analogue input from the touch joystick, -1..1. */
-  input: { x: number; y: number; boost: boolean };
+  /** Analogue input from the touch joystick, -1..1; `held` while a thumb is on it. */
+  input: { x: number; y: number; boost: boolean; held: boolean };
+  /** Turn the camera by a drag: yaw left/right and a little pitch, in radians. */
+  look: (yaw: number, pitch: number) => void;
   start: () => void;
   teleport: (id: number) => void;
   respawn: () => void;
   /** Rover speed from 0 (still) to 1 (full boost). */
   getSpeed: () => number;
+  /** 0 = Chill, 1 = Normal, 2 = Fast. */
+  setSpeedLevel: (level: number) => void;
   /** Events happening right now get a pulsing beam and a LIVE tag. */
   setLive: (ids: number[]) => void;
   /** Time of day: an hour 0–24, or null to follow the real time in India. */
@@ -67,6 +71,8 @@ const SIDE = [-1, 1, -1];
 const BRANCH_LEN = 70;
 const DISTRICT_ANGLES = SIDE.map((s) => (s < 0 ? Math.PI : 0));
 const PLAZA = 27;
+/** Chill, Normal (the default) and Fast: top speed and pick-up, as a share of the old full speed. */
+const SPEED_LEVELS = [0.55, 0.75, 1];
 const ZONE_RING = 17;
 
 const CENTERS = [0, 1, 2].map((d) => new THREE.Vector2(SIDE[d] * BRANCH_LEN, JUNCTION_Z[d]));
@@ -369,6 +375,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   let nightBoost = 1;
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 800);
+  let baseFov = 50;
 
   const hemi = new THREE.HemisphereLight("#fff6e0", "#5a7a3a", 1.5);
   scene.add(hemi);
@@ -1090,7 +1097,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     note("SIC was here", 8, TOWER_Z + 14, 7, "#e2452b");
     note("made by students, for students", 0, TOWER_Z - 22, 13, INK, 2.6);
     note("the clock is ticking", -7, TOWER_Z + 6, 15, INK, 1.8);
-    note("go on, jump it", 5, 125, 4.5, "#1f9c86");
+    note("go on, jump it", 15, 128, 7, "#1f9c86", 1.8);
   }
 
   // ---- street lamps down both sides of the track (glow at night)
@@ -1308,6 +1315,30 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   });
   // A small rover, closer to a robot than a car
   rover.scale.setScalar(0.68);
+
+  // Nitro: two flame jets out of the back while boosting (an outer orange cone, an inner blue core)
+  const nitro = new THREE.Group();
+  nitro.position.set(0, 0.6, -1.7);
+  body.add(nitro);
+  const flameMat = keepMat(new THREE.MeshBasicMaterial({ color: "#ff8a1f", transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const coreMat = keepMat(new THREE.MeshBasicMaterial({ color: "#7fd8ff", transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const flameGeo = track(new THREE.ConeGeometry(0.32, 1.6, 10, 1, true));
+  flameGeo.rotateX(-Math.PI / 2);
+  flameGeo.translate(0, 0, -0.8);
+  const coreGeo = track(new THREE.ConeGeometry(0.16, 0.9, 8, 1, true));
+  coreGeo.rotateX(-Math.PI / 2);
+  coreGeo.translate(0, 0, -0.45);
+  const jets = [-0.55, 0.55].map((x) => {
+    const j = new THREE.Group();
+    j.position.x = x;
+    j.add(new THREE.Mesh(flameGeo, flameMat), new THREE.Mesh(coreGeo, coreMat));
+    box(0.34, 0.3, 0.3, "#3b3430", j, 0, -0.15, 0.1);
+    nitro.add(j);
+    return j;
+  });
+  nitro.visible = false;
+  /** 0 = off, 1 = full nitro; eased so the flames and the view widen smoothly. */
+  let nitroLevel = 0;
   scene.add(rover);
 
   // The guide arrow: a flat paper cut-out that always faces the camera and turns on screen.
@@ -1376,10 +1407,16 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   const SPAWN = { x: 0, z: START_Z - 6, heading: Math.PI };
   const car = { x: SPAWN.x, z: SPAWN.z, y: 0, vy: 0, heading: SPAWN.heading, speed: 0, air: false, pitch: 0, roll: 0, steer: 0 };
   const keys = new Set<string>();
-  const input = { x: 0, y: 0, boost: false };
+  const input = { x: 0, y: 0, boost: false, held: false };
+  /** Where the player has turned the camera, on top of "behind the rover". */
+  let lookYaw = 0;
+  let lookPitch = 0;
+  let driving = false;
   let started = false;
   let currentZone: number | null = null;
   let view = 0.35;
+  /** Top speed multiplier from the menu (Chill / Normal / Fast). */
+  let speedScale = SPEED_LEVELS[1];
   let arrowOn = true;
   const camPos = new THREE.Vector3(150, 90, 150);
   const camLook = new THREE.Vector3();
@@ -1414,7 +1451,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     const h = canvas.clientHeight || window.innerHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    camera.fov = w < h ? 62 : 50;
+    baseFov = w < h ? 62 : 50;
+    camera.fov = baseFov;
     camera.updateProjectionMatrix();
   };
   resize();
@@ -1597,14 +1635,26 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     const kLeft = keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0;
     const kRight = keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0;
     const throttle = started ? Math.max(-1, Math.min(1, kUp - kDown + input.y)) : 0;
+    // Driving (joystick held or a drive key down) brings the camera back behind the rover.
+    driving = input.held || kUp + kDown + kLeft + kRight > 0;
     const steerIn = started ? Math.max(-1, Math.min(1, kLeft - kRight - input.x)) : 0;
     const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") || input.boost;
+    const nitroWant = boost && started && car.speed > 4 && !car.air ? 1 : 0;
+    nitroLevel += (nitroWant - nitroLevel) * Math.min(1, dt * (nitroWant ? 8 : 4));
+    nitro.visible = nitroLevel > 0.03;
+    if (nitro.visible) {
+      jets.forEach((j, i) => {
+        const flick = 0.75 + Math.random() * 0.5;
+        j.scale.set(0.8 + nitroLevel * 0.4, 0.8 + nitroLevel * 0.4, nitroLevel * flick * (1.1 + Math.sin(t * 40 + i) * 0.15));
+      });
+      flameMat.opacity = 0.55 + nitroLevel * 0.4;
+    }
     const brake = keys.has("Space");
 
-    const max = boost ? 32 : 21;
+    const max = (boost ? 32 : 21) * speedScale;
     const onRoad = openness(car.x, car.z) < 0;
     const grip = car.air ? 0.15 : 1;
-    if (throttle !== 0) car.speed += throttle * (throttle * car.speed < 0 ? 40 : boost ? 26 : 17) * dt * grip;
+    if (throttle !== 0) car.speed += throttle * (throttle * car.speed < 0 ? 40 : (boost ? 26 : 17) * speedScale) * dt * grip;
     else car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), (onRoad ? 6 : 9) * dt);
     if (brake) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 40 * dt);
     const limit = onRoad ? max : max * 0.8;
@@ -1686,7 +1736,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       p.life = 1;
       p.m.visible = true;
       p.m.position.set(car.x - fx * 1.8 + (Math.random() - 0.5), car.y + 0.3, car.z - fz * 1.8 + (Math.random() - 0.5));
-      p.mat.color.set(onRoad ? "#d8cfc0" : "#e6d2a4");
+      p.mat.color.set(nitroLevel > 0.5 ? "#ffb347" : onRoad ? "#d8cfc0" : "#e6d2a4");
     }
     for (const p of dust) {
       if (p.life <= 0) continue;
@@ -1881,16 +1931,32 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       camLook.set(0, 4, 0);
       camera.position.lerp(camPos, 0.05);
     } else {
-      const fx = Math.sin(car.heading);
-      const fz = Math.cos(car.heading);
+      if (driving && (lookYaw || lookPitch)) {
+        const k = Math.exp(-dt * 2.5);
+        lookYaw *= k;
+        lookPitch *= k;
+        if (Math.abs(lookYaw) < 0.002) lookYaw = 0;
+        if (Math.abs(lookPitch) < 0.002) lookPitch = 0;
+      }
+      const yaw = car.heading + lookYaw;
+      const fx = Math.sin(yaw);
+      const fz = Math.cos(yaw);
       // view: 0 = close behind the rover, 1 = high and far
       const back = 8 + view * 20 + Math.abs(car.speed) * 0.2;
-      camPos.set(car.x - fx * back, car.y + 4.5 + view * 13 + Math.abs(car.speed) * 0.08, car.z - fz * back);
+      // Pitch swings the camera up over the rover (positive) or down towards the ground
+      const lift = 4.5 + view * 13 + Math.abs(car.speed) * 0.08 + lookPitch * (6 + view * 8);
+      camPos.set(car.x - fx * back, car.y + lift, car.z - fz * back);
       const gh = terrain(camPos.x, camPos.z) + 2;
       if (camPos.y < gh) camPos.y = gh;
       camera.position.lerp(camPos, 1 - Math.pow(0.0025, dt));
       fwd.set(car.x + fx * 4, car.y + 1.5, car.z + fz * 4);
       camLook.lerp(fwd, 1 - Math.pow(0.0005, dt));
+    }
+    // Nitro widens the view a little, like the world rushing past
+    const fovWant = baseFov + nitroLevel * 9;
+    if (Math.abs(camera.fov - fovWant) > 0.05) {
+      camera.fov += (fovWant - camera.fov) * Math.min(1, dt * 6);
+      camera.updateProjectionMatrix();
     }
     camera.lookAt(camLook);
     sun.position.set(camLook.x + 40, 70, camLook.z + 30);
@@ -1927,7 +1993,15 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       camera.position.set(car.x + (dx / d) * 14, car.y + 9, car.z + (dz / d) * 14);
     },
     respawn,
-    getSpeed: () => Math.min(1, Math.abs(car.speed) / 32),
+    look(yaw, pitch) {
+      if (!started || input.held) return;
+      lookYaw = Math.atan2(Math.sin(lookYaw + yaw), Math.cos(lookYaw + yaw));
+      lookPitch = Math.max(-0.45, Math.min(0.9, lookPitch + pitch));
+    },
+    getSpeed: () => Math.min(1, Math.abs(car.speed) / (32 * speedScale)),
+    setSpeedLevel(level) {
+      speedScale = SPEED_LEVELS[level] ?? SPEED_LEVELS[1];
+    },
     setTime(hour) {
       forcedHour = hour === null ? null : ((hour % 24) + 24) % 24;
       applyTimeOfDay();

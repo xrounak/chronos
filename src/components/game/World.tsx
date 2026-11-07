@@ -9,6 +9,7 @@ import { CutLetters } from "@/components/Cutouts";
 import { RegisterDialog, SoundToggle } from "@/components/Controls";
 import { armSound, cue } from "@/components/sound";
 import { trackRegister } from "@/components/Tracked";
+import { Credit } from "@/components/Credit";
 import { festivalStatus, liveEventIds } from "@/lib/live";
 import { formatTime, submitRun, topRuns, type Run } from "@/lib/leaderboard";
 import type { WorldHandle, ZoneDef } from "./engine";
@@ -59,6 +60,7 @@ const TIMES: Array<{ id: string; label: string; hour: number | null }> = [
 function Joystick({ world }: { world: React.RefObject<WorldHandle | null> }) {
   const pad = useRef<HTMLDivElement>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
+  const [active, setActive] = useState(false);
   const pointer = useRef<number | null>(null);
   const move = (e: React.PointerEvent) => {
     if (pointer.current !== e.pointerId || !pad.current) return;
@@ -79,6 +81,8 @@ function Joystick({ world }: { world: React.RefObject<WorldHandle | null> }) {
   };
   const end = () => {
     pointer.current = null;
+    setActive(false);
+    if (world.current) world.current.input.held = false;
     setKnob({ x: 0, y: 0 });
     if (world.current) {
       world.current.input.x = 0;
@@ -88,10 +92,16 @@ function Joystick({ world }: { world: React.RefObject<WorldHandle | null> }) {
   return (
     <div
       ref={pad}
-      className="joy"
+      className={`joy ${active ? "is-active" : ""}`}
       onPointerDown={(e) => {
         pointer.current = e.pointerId;
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        setActive(true);
+        if (world.current) world.current.input.held = true;
+        try {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        } catch {
+          // capture is a nicety: dragging still works without it
+        }
         move(e);
       }}
       onPointerMove={move}
@@ -133,6 +143,10 @@ export function World({ days }: { days: ShowDay[] }) {
   const [view, setView] = useState(0.35);
   const [timeMode, setTimeMode] = useState<string>("auto");
   const [arrowOn, setArrowOn] = useState(true);
+  const [speedLevel, setSpeedLevel] = useState(1);
+  /** Look-around sensitivity, 0 (low) to 1 (high); gentle by default. */
+  const [lookSens, setLookSens] = useState(0.3);
+  const lookDrag = useRef<{ id: number; x: number; y: number } | null>(null);
   const [finishSec, setFinishSec] = useState<number | null>(null);
   const [board, setBoard] = useState<Run[] | null>(null);
   const [runName, setRunName] = useState("");
@@ -301,6 +315,62 @@ export function World({ days }: { days: ShowDay[] }) {
     } catch {}
   }, [timeMode, status]);
 
+  // Look sensitivity, remembered on this device
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("chronos-look");
+      const v = Number(raw);
+      if (raw !== null && Number.isFinite(v)) setLookSens(Math.min(1, Math.max(0, v)));
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("chronos-look", String(lookSens));
+    } catch {}
+  }, [lookSens]);
+
+  // Drag on the 3D view (mouse or finger) to look around. Off while the joystick is held.
+  const onLookDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (status !== "playing" || lookDrag.current || world.current?.input.held) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    lookDrag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+  };
+  const onLookMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const d = lookDrag.current;
+    if (!d || d.id !== e.pointerId) return;
+    if (world.current?.input.held) {
+      lookDrag.current = null;
+      return;
+    }
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    d.x = e.clientX;
+    d.y = e.clientY;
+    // radians per pixel: low ≈ 0.0015, high ≈ 0.0075
+    const k = 0.0015 + lookSens * 0.006;
+    world.current?.look(-dx * k, dy * k * 0.6);
+  };
+  const onLookUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (lookDrag.current?.id === e.pointerId) lookDrag.current = null;
+  };
+
+  // Rover speed (Chill / Normal / Fast), remembered on this device
+  useEffect(() => {
+    try {
+      const v = Number(localStorage.getItem("chronos-speed"));
+      if (localStorage.getItem("chronos-speed") !== null && [0, 1, 2].includes(v)) setSpeedLevel(v);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    world.current?.setSpeedLevel(speedLevel);
+    try {
+      localStorage.setItem("chronos-speed", String(speedLevel));
+    } catch {}
+  }, [speedLevel, status]);
+
   // Guide arrow on or off, remembered on this device
   useEffect(() => {
     try {
@@ -359,7 +429,16 @@ export function World({ days }: { days: ShowDay[] }) {
 
   return (
     <div className={`game ${touch ? "has-touch" : ""}`}>
-      <canvas ref={canvas} className="game-canvas" tabIndex={-1} aria-label="3D map of the Chronos festival. Use the event list for the same information." />
+      <canvas
+        ref={canvas}
+        className={`game-canvas ${status === "playing" ? "can-look" : ""}`}
+        tabIndex={-1}
+        aria-label="3D map of the Chronos festival. Drag to look around. Use the event list for the same information."
+        onPointerDown={onLookDown}
+        onPointerMove={onLookMove}
+        onPointerUp={onLookUp}
+        onPointerCancel={onLookUp}
+      />
 
       {/* --------------------------------------------------------------- HUD */}
       <div className={`hud ${status === "playing" ? "is-on" : ""}`}>
@@ -399,6 +478,34 @@ export function World({ days }: { days: ShowDay[] }) {
               </span>
               <input type="range" min={0} max={1} step={0.01} value={view} onChange={(e) => setView(Number(e.target.value))} aria-label="Camera distance" />
             </label>
+            <label className="menu-item menu-slider">
+              <span className="flex w-full justify-between">
+                <span>Look sensitivity</span>
+                <span className="opacity-60">{lookSens < 0.34 ? "Low" : lookSens > 0.66 ? "High" : "Medium"}</span>
+              </span>
+              <input type="range" min={0} max={1} step={0.01} value={lookSens} onChange={(e) => setLookSens(Number(e.target.value))} aria-label="Look sensitivity" />
+              <span className="menu-hint">Drag the view to look around · drive to snap back</span>
+            </label>
+            <div className="menu-item menu-slider">
+              <span>Speed</span>
+              <span className="time-pick speed-pick" role="radiogroup" aria-label="Rover speed">
+                {["Chill", "Normal", "Fast"].map((label, i) => (
+                  <button
+                    key={label}
+                    type="button"
+                    role="radio"
+                    aria-checked={speedLevel === i}
+                    className={speedLevel === i ? "is-on" : ""}
+                    onClick={() => {
+                      cue("click");
+                      setSpeedLevel(i);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+            </div>
             <div className="menu-item menu-slider">
               <span>Time of day</span>
               <span className="time-pick" role="radiogroup" aria-label="Time of day">
@@ -456,6 +563,9 @@ export function World({ days }: { days: ShowDay[] }) {
               <span>Lite version</span>
               <span aria-hidden="true">→</span>
             </Link>
+            <div className="menu-item menu-credit">
+              <Credit />
+            </div>
           </div>
         )}
 
@@ -607,6 +717,7 @@ export function World({ days }: { days: ShowDay[] }) {
             </div>
           )}
           <p className="label text-[0.58rem] opacity-70">{touch ? "Joystick to drive · Boost button to go faster" : "W A S D or arrow keys · Shift to boost"}</p>
+          <Credit className="start-credit" />
         </div>
       )}
 

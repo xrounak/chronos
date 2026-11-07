@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large" } },
 };
 
-export const viewport: Viewport = { themeColor: "#07070a", colorScheme: "dark" };
+export const viewport: Viewport = { themeColor: "#07070a", colorScheme: "dark", viewportFit: "cover" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

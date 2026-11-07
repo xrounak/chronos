@@ -953,6 +953,9 @@
     width: 100%;
     border: 2px solid var(--ink);
   }
+  .speed-pick {
+    grid-template-columns: repeat(3, 1fr);
+  }
   .time-pick button {
     padding: 0.3rem 0;
     font-family: var(--font-label);
@@ -1274,5 +1277,183 @@
     .hud > .slow-card {
       top: auto;
     }
+  }
+}
+
+/* ------------------------------------------------------------- Site credit */
+@layer components {
+  .credit {
+    position: relative;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    font-family: var(--font-label);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+  }
+  .credit-by {
+    opacity: 0.7;
+  }
+  .credit-name {
+    font: inherit;
+    text-transform: uppercase;
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-style: wavy;
+    text-underline-offset: 3px;
+    text-decoration-color: #e2452b;
+    cursor: pointer;
+  }
+  .credit-card {
+    position: absolute;
+    bottom: calc(100% + 0.6rem);
+    left: 50%;
+    translate: -50% 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    width: 15.5rem;
+    padding: 0.75rem;
+    text-transform: none;
+    color: #1d1813;
+    background-color: #fff3dc;
+    background-image: var(--grain);
+    border: 3px solid #1d1813;
+    box-shadow: 5px 5px 0 #1d1813;
+    animation: card-in 0.25s cubic-bezier(0.2, 1.4, 0.4, 1);
+  }
+  .credit-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.15rem;
+    border-bottom: 2px dashed rgb(29 24 19 / 0.3);
+  }
+  .credit-avatar {
+    display: grid;
+    place-items: center;
+    width: 2.4rem;
+    height: 2.4rem;
+    font-family: var(--font-digits);
+    font-size: 0.7rem;
+    color: #fff3dc;
+    background: #e2452b;
+    border: 2.5px solid #1d1813;
+    box-shadow: 2px 2px 0 #1d1813;
+  }
+  .credit-title {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+  .credit-role {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    opacity: 0.75;
+  }
+  .credit-link {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.55rem;
+    background: #fffaf0;
+    border: 2px solid #1d1813;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .credit-link:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 3px 3px 0 #1d1813;
+  }
+  .credit-link svg {
+    width: 1.15rem;
+    height: 1.15rem;
+    flex-shrink: 0;
+  }
+  .credit-link-label {
+    font-family: var(--font-label);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+  }
+  .credit-link-handle {
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .start-credit {
+    position: absolute !important;
+    bottom: 1rem;
+    left: 50%;
+    translate: -50% 0;
+  }
+}
+@layer components {
+  /* In the menu the card opens in place (the menu scrolls, so it can't float above) */
+  .menu-credit {
+    cursor: default;
+  }
+  .menu-credit .credit {
+    flex-wrap: wrap;
+  }
+  .menu-credit .credit-card {
+    position: static;
+    translate: none;
+    width: 100%;
+    margin-top: 0.5rem;
+    box-shadow: 3px 3px 0 #1d1813;
+  }
+}
+
+/* Touch controls v2: bigger, aligned on one baseline, joystick fades while driving */
+@layer components {
+  .joy {
+    transition: opacity 0.2s ease;
+  }
+  /* While a thumb is on it, the joystick almost disappears so it doesn't hide the road */
+  .joy.is-active {
+    opacity: 0.1;
+  }
+  @media (max-width: 640px) {
+    .game .joy {
+      left: calc(1.1rem + env(safe-area-inset-left));
+      bottom: calc(1.2rem + env(safe-area-inset-bottom));
+      width: 8.6rem;
+      height: 8.6rem;
+    }
+    .game .joy span {
+      width: 3.4rem;
+      height: 3.4rem;
+      margin: -1.7rem 0 0 -1.7rem;
+    }
+    /* Centred on the joystick's middle line */
+    .game .boost {
+      right: calc(1.1rem + env(safe-area-inset-right));
+      bottom: calc(2.75rem + env(safe-area-inset-bottom));
+      width: 5.5rem;
+      height: 5.5rem;
+      font-size: 0.75rem;
+      box-shadow: 4px 4px 0 var(--ink);
+    }
+    .has-touch .zone-card {
+      bottom: calc(10.6rem + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+@layer components {
+  .game-canvas.can-look {
+    cursor: grab;
+  }
+  .game-canvas.can-look:active {
+    cursor: grabbing;
+  }
+  .menu-hint {
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0.65;
   }
 }

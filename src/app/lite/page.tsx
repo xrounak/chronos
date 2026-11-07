@@ -9,6 +9,7 @@ import { DayTabs } from "@/components/lite/DayTabs";
 import { DriftCar } from "@/components/lite/DriftCar";
 import { LiteCountdown, PopIn, TowerClock } from "@/components/lite/LiteBits";
 import { TrackedLink } from "@/components/Tracked";
+import { Credit } from "@/components/Credit";
 
 /** Re-read the programme from sic.gecp.in every five minutes. */
 export const revalidate = 300;
@@ -189,6 +190,7 @@ export default async function LitePage() {
               <span className="text-sm">{FESTIVAL.organiser}</span>
             </span>
           </a>
+          <Credit />
           <a href={ALL_EVENTS_URL} className="label text-[0.62rem] opacity-70 hover:opacity-100">
             All events on sic.gecp.in →
           </a>
