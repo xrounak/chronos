@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ShowDay } from "@/lib/events";
 import { ALL_EVENTS_URL } from "@/lib/events";
 import { CHAPTER_IDS, CHAPTER_LABELS, story } from "@/lib/story";
-import { cue, onSoundChange, setSound, wantedSound } from "./sound";
+import { armSound, cue, isSoundOn, onSoundChange, setSound } from "./sound";
 
 const OPEN = "chronos:register";
 
@@ -116,16 +116,13 @@ export function RegisterDialog({ days }: { days: ShowDay[] }) {
 export function SoundToggle({ className = "ghost" }: { className?: string }) {
   const [on, setOn] = useState(false);
   useEffect(() => {
+    setOn(isSoundOn());
     const off = onSoundChange(setOn);
-    if (wantedSound()) {
-      const start = () => void setSound(true);
-      window.addEventListener("pointerdown", start, { once: true });
-      return () => {
-        off();
-        window.removeEventListener("pointerdown", start);
-      };
-    }
-    return off;
+    const disarm = armSound();
+    return () => {
+      off();
+      disarm();
+    };
   }, []);
   return (
     <button type="button" className={className} aria-pressed={on} onClick={() => void setSound(!on)}>

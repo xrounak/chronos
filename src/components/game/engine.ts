@@ -1239,6 +1239,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     }
   }
   let collected = 0;
+  cb.onCollect(0, gears.length);
 
   // ---- cones you can knock over
   const cones: Array<{ g: THREE.Group; x: number; z: number; vx: number; vz: number; tip: number; tipAxis: THREE.Vector3 }> = [];
@@ -1305,6 +1306,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     rover.add(w);
     wheels.push(w);
   });
+  // A small rover, closer to a robot than a car
+  rover.scale.setScalar(0.68);
   scene.add(rover);
 
   // The guide arrow: a flat paper cut-out that always faces the camera and turns on screen.
@@ -1314,17 +1317,17 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     const g = c.getContext("2d")!;
     const path = (dx: number, dy: number) => {
       g.beginPath();
-      g.moveTo(128 + dx, 18 + dy);
-      g.lineTo(224 + dx, 120 + dy);
-      g.lineTo(166 + dx, 120 + dy);
-      g.lineTo(166 + dx, 236 + dy);
-      g.lineTo(90 + dx, 236 + dy);
-      g.lineTo(90 + dx, 120 + dy);
-      g.lineTo(32 + dx, 120 + dy);
+      g.moveTo(128 + dx, 30 + dy);
+      g.lineTo(192 + dx, 112 + dy);
+      g.lineTo(146 + dx, 112 + dy);
+      g.lineTo(146 + dx, 226 + dy);
+      g.lineTo(110 + dx, 226 + dy);
+      g.lineTo(110 + dx, 112 + dy);
+      g.lineTo(64 + dx, 112 + dy);
       g.closePath();
     };
     g.fillStyle = INK;
-    path(12, 10);
+    path(7, 6);
     g.fill();
     g.fillStyle = color;
     path(0, 0);
@@ -1337,7 +1340,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     g.fillStyle = "rgba(255,255,255,0.28)";
     g.fillRect(0, 0, 128, 256);
     g.restore();
-    g.lineWidth = 10;
+    g.lineWidth = 6;
     g.lineJoin = "round";
     g.strokeStyle = INK;
     path(0, 0);
@@ -1346,7 +1349,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   });
   const arrowMat = keepMat(new THREE.SpriteMaterial({ map: arrowTex[0], depthTest: false, depthWrite: false, transparent: true }));
   const arrow = new THREE.Sprite(arrowMat);
-  arrow.scale.set(2.6, 2.6, 1);
+  arrow.scale.set(1.6, 1.6, 1);
+  arrowMat.opacity = 0.8;
   arrow.renderOrder = 10;
   scene.add(arrow);
   const camInv = new THREE.Quaternion();
@@ -1614,7 +1618,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     for (const c of colliders) {
       const dx = nx - c.x;
       const dz = nz - c.z;
-      const min = c.r + 1.3;
+      const min = c.r + 0.95;
       if (Math.abs(dx) > min || Math.abs(dz) > min) continue;
       const d = Math.hypot(dx, dz);
       if (d < min && d > 0.0001) {
@@ -1820,7 +1824,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       arrowAngle += diff * Math.min(1, dt * 8);
       arrowMat.rotation = arrowAngle;
-      const pulse = 2.6 + Math.sin(t * 5) * 0.15;
+      const pulse = 1.6 + Math.sin(t * 5) * 0.08;
       arrow.scale.set(pulse, pulse, 1);
     }
   }

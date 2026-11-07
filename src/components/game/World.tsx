@@ -7,7 +7,7 @@ import { ALL_EVENTS_URL } from "@/lib/events";
 import { FESTIVAL, FINAL_FRAME } from "@/lib/festival";
 import { CutLetters } from "@/components/Cutouts";
 import { RegisterDialog, SoundToggle } from "@/components/Controls";
-import { cue } from "@/components/sound";
+import { armSound, cue } from "@/components/sound";
 import { trackRegister } from "@/components/Tracked";
 import { festivalStatus, liveEventIds } from "@/lib/live";
 import { formatTime, submitRun, topRuns, type Run } from "@/lib/leaderboard";
@@ -32,9 +32,12 @@ type Flat = ShowEvent & { id: number; day: number; dayTitle: string; dayNumber: 
 
 /** Countdown text, then "Day 2 is on" during the festival. */
 function useCountdown(days: ShowDay[]) {
-  const [left, setLeft] = useState<string | null>(null);
+  const [left, setLeft] = useState<{ phase: string; text: string; short: string } | null>(null);
   useEffect(() => {
-    const tick = () => setLeft(festivalStatus(days).text);
+    const tick = () => {
+      const st = festivalStatus(days);
+      setLeft({ phase: st.phase, text: st.text, short: st.phase === "soon" ? st.text.replace(" to gates", "") : st.phase === "live" && "day" in st && st.day !== undefined ? `Day ${st.day + 1} is on` : "See you soon" });
+    };
     tick();
     const id = window.setInterval(tick, 15000);
     return () => clearInterval(id);
@@ -106,6 +109,8 @@ export function World({ days }: { days: ShowDay[] }) {
   const minimap = useRef<HTMLCanvasElement>(null);
   const world = useRef<WorldHandle | null>(null);
   const mapDialog = useRef<HTMLDialogElement>(null);
+  const boardDialog = useRef<HTMLDialogElement>(null);
+  const [lb, setLb] = useState<{ state: "loading" | "ready" | "off"; runs: Run[] }>({ state: "loading", runs: [] });
 
   const events = useMemo<Flat[]>(() => {
     let id = 0;
@@ -166,7 +171,7 @@ export function World({ days }: { days: ShowDay[] }) {
             }
           },
           onCollect: (n, total) => {
-            cue("shimmer");
+            if (n > 0) cue("shimmer");
             setGears({ n, total });
           },
           onReady: () => setStatus("ready"),
@@ -205,6 +210,9 @@ export function World({ days }: { days: ShowDay[] }) {
     const id = window.setInterval(tick, 30000);
     return () => clearInterval(id);
   }, [days, status]);
+
+  // Sound is on by default: it starts at the first click, tap or key press.
+  useEffect(() => armSound(), []);
 
   // Music and engine hum; the hum follows the rover's speed.
   useEffect(() => {
@@ -249,6 +257,14 @@ export function World({ days }: { days: ShowDay[] }) {
       setPhotoBusy(false);
     }
   };
+  const openBoard = () => {
+    cue("click");
+    setMenuOpen(false);
+    setLb((v) => ({ ...v, state: "loading" }));
+    boardDialog.current?.showModal();
+    void topRuns(20).then((runs) => setLb(runs ? { state: "ready", runs } : { state: "off", runs: [] }));
+  };
+
   const closePhoto = () => {
     if (photo?.url) URL.revokeObjectURL(photo.url);
     setPhoto(null);
@@ -347,128 +363,139 @@ export function World({ days }: { days: ShowDay[] }) {
 
       {/* --------------------------------------------------------------- HUD */}
       <div className={`hud ${status === "playing" ? "is-on" : ""}`}>
-        <header className="hud-header">
-          <div className="hud-head-row">
-            <p className="hud-logo" aria-label={`Chronos ${FESTIVAL.year}`}>
-              {"CHRONOS".split("").map((ch, i) => (
-                <span key={i} style={{ animationDelay: `${i * -0.7}s` }} aria-hidden="true">
-                  {ch}
-                </span>
-              ))}
-            </p>
+        <button
+          type="button"
+          className={`burger hud-burger ${menuOpen ? "is-open" : ""}`}
+          aria-label={menuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={menuOpen}
+          aria-controls="game-menu"
+          onClick={() => {
+            cue("click");
+            setMenuOpen((v) => !v);
+          }}
+        >
+          <i />
+          <i />
+          <i />
+        </button>
+        {menuOpen && (
+          <div id="game-menu" className="game-menu hud-menu" role="menu">
+            <button type="button" role="menuitem" className="menu-item" onClick={() => (cue("click"), setMenuOpen(false), mapDialog.current?.showModal())}>
+              <span>All events · fast travel</span>
+              <kbd>M</kbd>
+            </button>
+            <button type="button" role="menuitem" className="menu-item" onClick={takePhoto} disabled={photoBusy}>
+              <span>Capture a photo</span>
+              <span aria-hidden="true">📸</span>
+            </button>
+            <button type="button" role="menuitem" className="menu-item" onClick={openBoard}>
+              <span>Leaderboard</span>
+              <span aria-hidden="true">🏆</span>
+            </button>
+            <label className="menu-item menu-slider">
+              <span className="flex w-full justify-between">
+                <span>Camera</span>
+                <span className="opacity-60">{view < 0.25 ? "Close" : view > 0.7 ? "Far" : "Normal"}</span>
+              </span>
+              <input type="range" min={0} max={1} step={0.01} value={view} onChange={(e) => setView(Number(e.target.value))} aria-label="Camera distance" />
+            </label>
+            <div className="menu-item menu-slider">
+              <span>Time of day</span>
+              <span className="time-pick" role="radiogroup" aria-label="Time of day">
+                {TIMES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={timeMode === t.id}
+                    className={timeMode === t.id ? "is-on" : ""}
+                    onClick={() => {
+                      cue("click");
+                      setTimeMode(t.id);
+                    }}
+                    title={t.id === "auto" ? "Follows the real time in India" : undefined}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </span>
+            </div>
             <button
               type="button"
-              className={`burger ${menuOpen ? "is-open" : ""}`}
-              aria-label={menuOpen ? "Close menu" : "Open menu"}
-              aria-expanded={menuOpen}
-              aria-controls="game-menu"
+              role="menuitemcheckbox"
+              aria-checked={arrowOn}
+              className="menu-item"
               onClick={() => {
                 cue("click");
-                setMenuOpen((v) => !v);
+                setArrowOn((v) => !v);
               }}
             >
-              <i />
-              <i />
-              <i />
+              <span>Guide arrow</span>
+              <span className={`switch ${arrowOn ? "is-on" : ""}`} aria-hidden="true">
+                <i />
+              </span>
             </button>
+            <div className="menu-item">
+              <span>Sound</span>
+              <SoundToggle className="chip" />
+            </div>
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                cue("click");
+                world.current?.respawn();
+                setMenuOpen(false);
+              }}
+            >
+              <span>Back to the start</span>
+              <kbd>R</kbd>
+            </button>
+            <Link href="/lite" role="menuitem" className="menu-item">
+              <span>Lite version</span>
+              <span aria-hidden="true">→</span>
+            </Link>
           </div>
-          <p className="hud-sub label">
-            {countdown && <span className="hud-count">{countdown}</span>}
-            <span className="flex items-center gap-1" aria-label={`${visited.size} of ${events.length} events visited`}>
-              {[0, 1, 2].map((d) => {
-                const all = events.filter((e) => e.day === d);
-                const done = all.length > 0 && all.every((e) => visited.has(e.id));
-                return (
-                  <i key={d} className="stamp-dot" aria-hidden="true" style={{ background: done ? DAY_COLORS[d] : "transparent", borderColor: d === 0 ? "#c98a10" : DAY_COLORS[d] }}>
-                    {d + 1}
-                  </i>
-                );
-              })}
-              {visited.size}/{events.length}
-            </span>
-            {gears.total > 0 && (
-              <span>
-                ⚙ {gears.n}/{gears.total}
+        )}
+
+        <header className="hud-header">
+          <p className="hud-logo" aria-label={`Chronos ${FESTIVAL.year}`}>
+            {"CHRONOS".split("").map((ch, i) => (
+              <span key={i} style={{ animationDelay: `${i * -0.7}s` }} aria-hidden="true">
+                {ch}
+              </span>
+            ))}
+          </p>
+          <div className="hud-stats">
+            {countdown && (
+              <span className="stat">
+                <small>{countdown.phase === "soon" ? "Gates in" : "Chronos"}</small>
+                <b>{countdown.short}</b>
               </span>
             )}
-          </p>
-
-          {menuOpen && (
-            <div id="game-menu" className="game-menu" role="menu">
-              <button type="button" role="menuitem" className="menu-item" onClick={() => (cue("click"), setMenuOpen(false), mapDialog.current?.showModal())}>
-                <span>All events · fast travel</span>
-                <kbd>M</kbd>
-              </button>
-              <button type="button" role="menuitem" className="menu-item" onClick={takePhoto} disabled={photoBusy}>
-                <span>Capture a photo</span>
-                <span aria-hidden="true">📸</span>
-              </button>
-              <label className="menu-item menu-slider">
-                <span className="flex w-full justify-between">
-                  <span>Camera</span>
-                  <span className="opacity-60">{view < 0.25 ? "Close" : view > 0.7 ? "Far" : "Normal"}</span>
+            <span className="stat" aria-label={`${visited.size} of ${events.length} events visited`}>
+              <small>Events</small>
+              <b>
+                <span className="flex gap-[3px]" aria-hidden="true">
+                  {[0, 1, 2].map((d) => {
+                    const all = events.filter((e) => e.day === d);
+                    const done = all.length > 0 && all.every((e) => visited.has(e.id));
+                    return <i key={d} className="day-pip" style={{ background: done ? DAY_COLORS[d] : "transparent", borderColor: DAY_COLORS[d] }} />;
+                  })}
                 </span>
-                <input type="range" min={0} max={1} step={0.01} value={view} onChange={(e) => setView(Number(e.target.value))} aria-label="Camera distance" />
-              </label>
-              <div className="menu-item menu-slider">
-                <span>Time of day</span>
-                <span className="time-pick" role="radiogroup" aria-label="Time of day">
-                  {TIMES.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={timeMode === t.id}
-                      className={timeMode === t.id ? "is-on" : ""}
-                      onClick={() => {
-                        cue("click");
-                        setTimeMode(t.id);
-                      }}
-                      title={t.id === "auto" ? "Follows the real time in India" : undefined}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </span>
-              </div>
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={arrowOn}
-                className="menu-item"
-                onClick={() => {
-                  cue("click");
-                  setArrowOn((v) => !v);
-                }}
-              >
-                <span>Guide arrow</span>
-                <span className={`switch ${arrowOn ? "is-on" : ""}`} aria-hidden="true">
-                  <i />
-                </span>
-              </button>
-              <div className="menu-item">
-                <span>Sound</span>
-                <SoundToggle className="chip" />
-              </div>
-              <button
-                type="button"
-                role="menuitem"
-                className="menu-item"
-                onClick={() => {
-                  cue("click");
-                  world.current?.respawn();
-                  setMenuOpen(false);
-                }}
-              >
-                <span>Back to the start</span>
-                <kbd>R</kbd>
-              </button>
-              <Link href="/lite" role="menuitem" className="menu-item">
-                <span>Lite version</span>
-                <span aria-hidden="true">→</span>
-              </Link>
-            </div>
-          )}
+                {visited.size}/{events.length}
+              </b>
+            </span>
+            {gears.total > 0 && (
+              <span className="stat">
+                <small>Gears</small>
+                <b>
+                  {gears.n}/{gears.total}
+                </b>
+              </span>
+            )}
+          </div>
         </header>
 
         <canvas ref={minimap} width={220} height={220} className="hud-map" aria-label="Open the event list" role="button" onClick={() => mapDialog.current?.showModal()} />
@@ -744,6 +771,40 @@ export function World({ days }: { days: ShowDay[] }) {
                 ))}
             </section>
           ))}
+        </div>
+      </dialog>
+
+      <dialog ref={boardDialog} className="map-dialog" aria-labelledby="board-title" onClick={(e) => e.target === boardDialog.current && boardDialog.current?.close()}>
+        <div className="flex flex-col gap-5 p-5 sm:p-8">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="label text-[0.62rem]">Time trial</p>
+              <h2 id="board-title" className="display mt-2 text-4xl">
+                Leaderboard
+              </h2>
+            </div>
+            <button type="button" className="chip" onClick={() => boardDialog.current?.close()} aria-label="Close">
+              ✕
+            </button>
+          </div>
+          <p className="text-sm leading-relaxed">
+            Visit all {events.length} events as fast as you can, driving the whole way (no fast travel), then post your time on the finish screen.
+          </p>
+          {lb.state === "loading" && <p className="label text-[0.65rem]">Loading…</p>}
+          {lb.state === "off" && <p className="text-sm">The leaderboard isn&apos;t live yet. Check back soon.</p>}
+          {lb.state === "ready" && lb.runs.length === 0 && <p className="text-sm">No times yet. Be the first on the board!</p>}
+          {lb.state === "ready" && lb.runs.length > 0 && (
+            <ol className="board-list">
+              {lb.runs.map((r) => (
+                <li key={`${r.place}-${r.name}`} className={r.place <= 3 ? `top-${r.place}` : ""}>
+                  <span className="board-place">#{r.place}</span>
+                  <span className="truncate">{r.name}</span>
+                  <span className="board-time">{formatTime(r.seconds)}</span>
+                  <span className="label text-[0.55rem] opacity-60">⚙ {r.gears}</span>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
       </dialog>
 

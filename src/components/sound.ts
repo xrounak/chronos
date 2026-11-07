@@ -94,13 +94,32 @@ export async function setSound(next: boolean) {
   startTick();
 }
 
-/** Whether the visitor turned sound on last time (it still needs a click to start). */
+/** Sound is on unless the visitor turned it off before (it still needs a click or key to start). */
 export function wantedSound() {
   try {
-    return localStorage.getItem(KEY) === "1";
+    return localStorage.getItem(KEY) !== "0";
   } catch {
-    return false;
+    return true;
   }
+}
+
+/**
+ * Turns sound on at the visitor's first click, tap or key press (browsers block audio
+ * before that), unless they switched it off last time. Returns a cleanup.
+ */
+export function armSound() {
+  if (!wantedSound() || on) return () => {};
+  const start = () => {
+    remove();
+    if (!on) void setSound(true);
+  };
+  const remove = () => {
+    window.removeEventListener("pointerdown", start);
+    window.removeEventListener("keydown", start);
+  };
+  window.addEventListener("pointerdown", start);
+  window.addEventListener("keydown", start);
+  return remove;
 }
 
 export function cue(name: Cue) {
