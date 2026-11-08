@@ -1469,3 +1469,748 @@
     }
   }
 }
+
+/* ------------------------------------------- Arrow pad (Minecraft-style 8-way) */
+@layer components {
+  .dpad {
+    position: absolute;
+    left: calc(1.1rem + env(safe-area-inset-left));
+    bottom: calc(1.2rem + env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 0.3rem;
+    width: 9.6rem;
+    height: 9.6rem;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: opacity 0.2s ease;
+  }
+  .dpad.is-active {
+    opacity: 0.55;
+  }
+  .dpad-key {
+    display: grid;
+    place-items: center;
+    font-family: system-ui, sans-serif;
+    font-size: 1.25rem;
+    line-height: 1;
+    color: var(--ink);
+    background-color: rgb(255 243 220 / 0.92);
+    background-image: var(--grain);
+    border: 2.5px solid var(--ink);
+    box-shadow: 3px 3px 0 var(--ink);
+    pointer-events: none;
+  }
+  .dpad-key svg {
+    width: 58%;
+    height: 58%;
+  }
+  .dpad-key.is-diag svg {
+    width: 48%;
+    height: 48%;
+  }
+  .dpad-key.is-diag {
+    font-size: 0.95rem;
+    background-color: rgb(255 243 220 / 0.65);
+    border-style: dashed;
+    box-shadow: none;
+  }
+  .dpad-key.is-on {
+    color: var(--cream);
+    background-color: var(--red);
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--ink);
+  }
+  .dpad-centre {
+    margin: 30%;
+    border-radius: 9999px;
+    background: rgb(29 24 19 / 0.35);
+  }
+
+  /* ------------------------------------------------------- Babu's tutorial */
+  .guide {
+    position: absolute;
+    z-index: 8;
+    left: 50%;
+    top: 19%;
+    translate: -50% 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.4rem;
+    width: min(34rem, 94vw);
+    pointer-events: none;
+  }
+  .guide > * {
+    pointer-events: auto;
+  }
+  .guide-bolt {
+    flex-shrink: 0;
+    width: 6.5rem;
+    margin-bottom: -0.4rem;
+    animation: bolt-hop 1.6s ease-in-out infinite;
+    filter: drop-shadow(3px 4px 0 rgb(29 24 19 / 0.35));
+  }
+  .bolt {
+    display: block;
+    width: 100%;
+    overflow: visible;
+  }
+  .bolt-eyes {
+    transform-origin: 60px 66px;
+    animation: bolt-blink 3.4s infinite;
+  }
+  .bolt-bulb {
+    animation: bolt-bulb 1s ease-in-out infinite alternate;
+  }
+  .bolt-wave .bolt-arm-r,
+  .bolt-happy .bolt-arm-l,
+  .bolt-happy .bolt-arm-r {
+    transform-box: fill-box;
+    transform-origin: 0% 100%;
+    animation: bolt-wave 0.5s ease-in-out infinite alternate;
+  }
+  .bolt-point .bolt-arm-r {
+    transform-box: fill-box;
+    transform-origin: 0% 100%;
+    transform: rotate(35deg);
+  }
+  .guide-card {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.9rem 1rem 0.8rem;
+    color: var(--ink);
+    background-color: var(--cream);
+    background-image: var(--grain);
+    border: 3px solid var(--ink);
+    box-shadow: 6px 6px 0 var(--ink);
+    animation: card-in 0.3s cubic-bezier(0.2, 1.4, 0.4, 1);
+  }
+  /* speech tail towards Babu */
+  .guide-card::before {
+    content: "";
+    position: absolute;
+    left: -14px;
+    bottom: 1.4rem;
+    width: 0;
+    height: 0;
+    border-top: 10px solid transparent;
+    border-bottom: 10px solid transparent;
+    border-right: 14px solid var(--ink);
+  }
+  .guide-step {
+    font-size: 0.62rem;
+    color: #c2361d;
+  }
+  .guide-title {
+    font-family: var(--font-display);
+    font-size: 1.7rem;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+  .guide-text {
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1.45;
+  }
+  .guide-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border: 2px solid var(--ink);
+  }
+  .guide-switch button {
+    padding: 0.45rem 0.4rem;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    background: #fffaf0;
+    border-right: 2px solid var(--ink);
+  }
+  .guide-switch button:last-child {
+    border-right: 0;
+  }
+  .guide-switch button.is-on {
+    color: var(--cream);
+    background: var(--ink);
+  }
+  .guide-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.2rem;
+  }
+  .guide-skip {
+    font-family: var(--font-label);
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    opacity: 0.75;
+  }
+  .guide-skip:hover {
+    opacity: 1;
+  }
+  .guide-dots {
+    display: flex;
+    justify-content: center;
+    gap: 0.3rem;
+  }
+  .guide-dots i {
+    width: 0.4rem;
+    height: 0.4rem;
+    background: rgb(29 24 19 / 0.25);
+  }
+  .guide-dots i.is-on {
+    width: 1rem;
+    background: var(--red);
+  }
+  /* Whatever Babu is talking about pulses */
+  html[data-guide-focus="controls"] .joy,
+  html[data-guide-focus="controls"] .dpad,
+  html[data-guide-focus="controls"] .hud-help,
+  html[data-guide-focus="boost"] .boost,
+  html[data-guide-focus="menu"] .hud-burger {
+    animation: guide-pulse 1s ease-in-out infinite;
+  }
+  @media (max-width: 640px) {
+    .guide {
+      top: 7.2rem;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    .guide-bolt {
+      width: 4.6rem;
+      margin-bottom: -0.2rem;
+    }
+    .guide-card::before {
+      left: 50%;
+      top: -14px;
+      bottom: auto;
+      translate: -50% 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-bottom: 14px solid var(--ink);
+      border-top: 0;
+    }
+    .guide-title {
+      font-size: 1.4rem;
+    }
+    .guide-text {
+      font-size: 0.88rem;
+    }
+    .game .dpad {
+      width: 9rem;
+      height: 9rem;
+    }
+  }
+}
+@keyframes bolt-hop {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -6px; }
+}
+@keyframes bolt-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+@keyframes bolt-bulb {
+  from { fill: #f4b536; }
+  to { fill: #fff3b0; }
+}
+@keyframes bolt-wave {
+  from { transform: rotate(-12deg); }
+  to { transform: rotate(18deg); }
+}
+@keyframes guide-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(226 69 43 / 0.9); }
+  50% { box-shadow: 0 0 0 10px rgb(226 69 43 / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .guide-bolt,
+  .bolt-eyes,
+  .bolt-bulb,
+  .bolt-arm-l,
+  .bolt-arm-r {
+    animation: none !important;
+  }
+}
+
+/* ------------------------- v3: guide out of the way, 6-key pad, nitro, icons */
+@layer components {
+  /* Pixel icons */
+  .px-icon {
+    display: inline-block;
+    width: 1.05em;
+    height: 1.05em;
+    flex-shrink: 0;
+    vertical-align: -0.12em;
+  }
+  .menu-ico {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--ink);
+  }
+  svg.menu-ico {
+    width: 1.1rem;
+    height: 1.1rem;
+  }
+  .btn-ico {
+    width: 0.95em;
+    height: 0.95em;
+    margin-left: 0.15em;
+  }
+  .inline-ico {
+    width: 0.95em;
+    height: 0.95em;
+  }
+
+  /* Guide: docked to the side (desktop) or the top (phones), never over the middle */
+  .guide {
+    left: 0.9rem;
+    top: 4.6rem;
+    translate: none;
+    width: min(23rem, 46vw);
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0;
+  }
+  .guide-bolt {
+    width: 4.2rem;
+    margin: 0 0 -0.5rem 0.8rem;
+    z-index: 1;
+  }
+  .guide-card::before {
+    left: 1.8rem;
+    top: -14px;
+    bottom: auto;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-bottom: 14px solid var(--ink);
+    border-top: 0;
+  }
+  .guide-title {
+    font-size: 1.45rem;
+  }
+  .guide-text {
+    font-size: 0.88rem;
+  }
+  .guide-spot {
+    position: absolute;
+    z-index: 7;
+    left: 50%;
+    top: 53%;
+    width: 7rem;
+    height: 7rem;
+    translate: -50% -50%;
+    border: 3px dashed var(--mustard);
+    border-radius: 9999px;
+    pointer-events: none;
+    animation: guide-spot 1.1s ease-in-out infinite;
+  }
+  .guide-spot::after {
+    content: "the arrow";
+    position: absolute;
+    left: 50%;
+    top: -1.9rem;
+    translate: -50% 0;
+    padding: 0.15rem 0.5rem;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--cream);
+    background: var(--ink);
+  }
+  @media (max-width: 640px) {
+    .guide {
+      left: 50%;
+      top: 6.4rem;
+      bottom: auto;
+      translate: -50% 0;
+      width: min(24rem, 94vw);
+      flex-direction: row;
+      align-items: flex-end;
+      gap: 0.2rem;
+    }
+    .guide-bolt {
+      width: 3.4rem;
+      margin: 0 -0.3rem -0.3rem 0;
+    }
+    .guide-card {
+      padding: 0.6rem 0.75rem 0.55rem;
+      gap: 0.35rem;
+      box-shadow: 4px 4px 0 var(--ink);
+    }
+    .guide-card::before {
+      left: -12px;
+      top: auto;
+      bottom: 1.1rem;
+      translate: none;
+      border-top: 9px solid transparent;
+      border-bottom: 9px solid transparent;
+      border-right: 12px solid var(--ink);
+      border-left: 0;
+    }
+    .guide-title {
+      font-size: 1.2rem;
+    }
+    .guide-text {
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+    .guide-dots {
+      display: none;
+    }
+  }
+
+  /* Arrow pad: forward row and reverse row only */
+  .dpad {
+    grid-template-rows: repeat(2, 1fr);
+    height: 6.6rem;
+  }
+  .game .dpad {
+    height: 6.6rem;
+  }
+  .dpad-key {
+    color: var(--ink);
+  }
+
+  /* Nitro meter in the header */
+  .stat-nitro b {
+    gap: 0.3rem;
+  }
+  .stat-ico {
+    width: 0.8rem;
+    height: 0.8rem;
+    color: var(--red);
+  }
+  .nitro-bar {
+    position: relative;
+    display: block;
+    width: 3.6rem;
+    height: 0.55rem;
+    background: rgb(29 24 19 / 0.15);
+    border: 1.5px solid var(--ink);
+    overflow: hidden;
+  }
+  .nitro-bar i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: repeating-linear-gradient(90deg, var(--red) 0 5px, #ff7a5c 5px 7px);
+    transition: width 0.15s linear;
+  }
+  .nitro-bar.is-empty {
+    animation: blink 0.8s steps(2) infinite;
+  }
+
+  /* NITRO button: a gauge ring that empties as you boost */
+  .game .boost {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--cream);
+    background: conic-gradient(var(--red) calc(var(--nitro, 1) * 1turn), rgb(29 24 19 / 0.55) 0);
+    border: 3px solid var(--ink);
+    border-radius: 9999px;
+  }
+  .boost-ring {
+    display: none;
+  }
+  .boost-face {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.05rem;
+    width: 76%;
+    height: 76%;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 35% 30%, #3a64c8, var(--blue) 60%, #193f8f);
+    border: 2.5px solid var(--ink);
+    box-shadow: inset 0 -4px 0 rgb(0 0 0 / 0.25);
+  }
+  .boost-ico {
+    width: 1.15rem;
+    height: 1.15rem;
+    color: var(--mustard);
+  }
+  .boost-label {
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  .boost-pct {
+    font-family: var(--font-digits);
+    font-size: 0.42rem;
+    line-height: 1.2;
+    opacity: 0.85;
+  }
+  .game .boost:active .boost-face {
+    background: radial-gradient(circle at 35% 30%, #ff8a5a, var(--red) 60%, #a52a15);
+  }
+  .game .boost.is-full {
+    animation: boost-ready 1.6s ease-in-out infinite;
+  }
+  .game .boost.is-empty .boost-face {
+    filter: grayscale(0.85) brightness(0.8);
+  }
+}
+@keyframes guide-spot {
+  50% { scale: 1.12; opacity: 0.6; }
+}
+@keyframes boost-ready {
+  50% { box-shadow: 0 0 0 6px rgb(244 181 54 / 0.35), 4px 4px 0 var(--ink); }
+}
+@layer components {
+  /* Touch screens show the tank on the NITRO button itself */
+  .has-touch .stat-nitro {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------ Desktop nitro gauge + nudge */
+@layer components {
+  /* The header chip is replaced by the big gauge (desktop) and the NITRO button (touch) */
+  .stat-nitro {
+    display: none !important;
+  }
+  .nitro-dock {
+    position: absolute;
+    left: 1rem;
+    bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.8rem;
+    background-color: var(--cream);
+    background-image: var(--grain);
+    border: 3px solid var(--ink);
+    box-shadow: 5px 5px 0 var(--ink);
+  }
+  .nitro-dock-ico {
+    width: 1.9rem;
+    height: 1.9rem;
+    color: var(--red);
+  }
+  .nitro-dock-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    width: 13rem;
+  }
+  .nitro-dock-top {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+  }
+  .nitro-dock-pct {
+    font-family: var(--font-digits);
+    font-size: 0.65rem;
+  }
+  .nitro-dock-bar {
+    position: relative;
+    display: block;
+    height: 0.9rem;
+    background: rgb(29 24 19 / 0.15);
+    border: 2px solid var(--ink);
+    overflow: hidden;
+  }
+  .nitro-dock-bar i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: repeating-linear-gradient(90deg, var(--red) 0 8px, #ff7a5c 8px 11px);
+    transition: width 0.15s linear;
+  }
+  .nitro-dock-hint {
+    font-family: var(--font-label);
+    font-size: 0.66rem;
+    opacity: 0.7;
+  }
+  .nitro-dock-hint kbd {
+    padding: 0 0.3rem;
+    border: 1.5px solid currentColor;
+    border-radius: 3px;
+  }
+  .nitro-dock.is-full {
+    animation: boost-ready 1.6s ease-in-out infinite;
+  }
+  @media (max-width: 1280px) {
+    /* Sit above the centred controls hint instead of under it */
+    .nitro-dock {
+      bottom: 3.7rem;
+    }
+  }
+  .nitro-dock.is-empty .nitro-dock-top {
+    color: #c2361d;
+    animation: blink 0.8s steps(2) infinite;
+  }
+
+  /* Babu's install nudge: small, off to the side, never in the middle */
+  .nudge {
+    position: absolute;
+    z-index: 7;
+    right: 1rem;
+    bottom: 1rem;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.2rem;
+    width: min(21rem, 92vw);
+    animation: card-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
+  }
+  .nudge-bolt {
+    flex-shrink: 0;
+    width: 3.4rem;
+    margin-bottom: -0.2rem;
+    animation: bolt-hop 1.6s ease-in-out infinite;
+  }
+  .nudge-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.6rem 0.75rem;
+    color: var(--ink);
+    background-color: var(--cream);
+    background-image: var(--grain);
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+  .nudge-title {
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+  .nudge-text {
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .nudge-actions {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .nudge-actions .chip {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.66rem;
+  }
+  @media (max-width: 640px) {
+    /* Above the touch controls, out of the middle */
+    .nudge {
+      right: 50%;
+      translate: 50% 0;
+      bottom: calc(9.4rem + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+/* ------------------------------------------------ Nitro pickup: flame orb to the gauge */
+@layer components {
+  .nitro-orb {
+    position: fixed;
+    z-index: 60;
+    left: 0;
+    top: 0;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    pointer-events: none;
+    background: radial-gradient(circle at 45% 40%, #fffbe0 0 18%, #ffd65a 32%, #ff8a3a 58%, rgb(226 69 43 / 0) 72%);
+    box-shadow: 0 0 18px 6px rgb(255 140 60 / 0.55);
+    will-change: transform, opacity;
+  }
+  .nitro-orb::after {
+    /* A flickering flame licking off the top */
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 55%;
+    width: 22px;
+    height: 30px;
+    translate: -50% 0;
+    border-radius: 50% 50% 50% 50% / 65% 65% 35% 35%;
+    background: radial-gradient(ellipse at 50% 80%, #fff3b0, #ff9a3a 55%, rgb(226 69 43 / 0) 75%);
+    animation: nitro-flicker 0.12s steps(2) infinite alternate;
+  }
+  .nitro-orb-trail {
+    box-shadow: none;
+    opacity: 0.6;
+  }
+  .nitro-orb-trail::after {
+    display: none;
+  }
+  .nitro-orb-trail.t0 { width: 30px; height: 30px; }
+  .nitro-orb-trail.t1 { width: 22px; height: 22px; }
+  .nitro-orb-trail.t2 { width: 14px; height: 14px; }
+
+  .nitro-gain {
+    animation: nitro-gain 0.6s cubic-bezier(0.2, 1.6, 0.4, 1) !important;
+  }
+
+  .nitro-tip {
+    position: fixed;
+    z-index: 61;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    padding: 0.35rem 0.65rem;
+    pointer-events: none;
+    color: var(--ink, #1d1813);
+    background: var(--cream, #fff3dc);
+    border: 3px solid var(--ink, #1d1813);
+    box-shadow: 3px 3px 0 var(--ink, #1d1813);
+    font-family: var(--font-label);
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+    animation: nitro-tip 0.35s cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  .nitro-tip b {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 400;
+    line-height: 1;
+    color: var(--red, #e2452b);
+    text-transform: uppercase;
+  }
+  .nitro-tip::after {
+    content: "";
+    position: absolute;
+    left: var(--arrow-x, 50%);
+    bottom: -9px;
+    width: 12px;
+    height: 12px;
+    translate: -50% 0;
+    rotate: 45deg;
+    background: inherit;
+    border-right: 3px solid var(--ink, #1d1813);
+    border-bottom: 3px solid var(--ink, #1d1813);
+  }
+}
+@keyframes nitro-flicker {
+  to { scale: 0.8 1.2; opacity: 0.75; }
+}
+@keyframes nitro-gain {
+  0% { scale: 1; filter: brightness(1); }
+  35% { scale: 1.18; filter: brightness(1.5) drop-shadow(0 0 10px #ffb347); }
+  100% { scale: 1; filter: brightness(1); }
+}
+@keyframes nitro-tip {
+  from { opacity: 0; translate: 0 8px; scale: 0.9; }
+}

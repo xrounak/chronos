@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/game/Icons";
 
 /** Who built this site: a name that opens a small card with their profiles. */
 
@@ -69,9 +70,7 @@ export function Credit({ className = "" }: { className?: string }) {
                 <span className="credit-link-label">{l.label}</span>
                 <span className="credit-link-handle">{l.handle}</span>
               </span>
-              <span aria-hidden="true" className="ml-auto">
-                ↗
-              </span>
+              <Icon name="arrow" className="ml-auto credit-go" />
             </a>
           ))}
         </span>

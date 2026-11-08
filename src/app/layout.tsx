@@ -1,19 +1,21 @@
 import type { Metadata, Viewport } from "next";
-import { Jersey_10, Pixelify_Sans, Press_Start_2P, Silkscreen, VT323 } from "next/font/google";
+import { Chakra_Petch, Jersey_10, Press_Start_2P, VT323 } from "next/font/google";
 import { FESTIVAL } from "@/lib/festival";
 import { SITE_URL } from "@/lib/events";
 import { Analytics } from "@vercel/analytics/next";
+import { INSTALL_BOOT } from "@/components/install";
+import { AppSetup } from "@/components/AppSetup";
 import "./globals.css";
 
 /**
- * One pixel family, five voices (like a colour palette): tall condensed Jersey for headings,
- * round Pixelify for reading, tiny Silkscreen caps for labels, VT323 terminal for notes and
- * chunky Press Start 2P (the most "Minecraft") for numbers.
+ * Pixel faces where they're big and decorative (Jersey headings, Press Start 2P numbers,
+ * VT323 notes). Descriptions and small labels use Chakra Petch: squared and techy so it
+ * fits the game look, but crisp and easy to read at small sizes.
  */
 const display = Jersey_10({ subsets: ["latin"], weight: "400", variable: "--font-pixel-display", display: "swap" });
-const body = Pixelify_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-pixel-body", display: "swap" });
+const body = Chakra_Petch({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-pixel-body", display: "swap" });
 const digits = Press_Start_2P({ subsets: ["latin"], weight: "400", variable: "--font-pixel-digits", display: "swap" });
-const label = Silkscreen({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-pixel-label", display: "swap" });
+const label = Chakra_Petch({ subsets: ["latin"], weight: ["400", "600", "700"], variable: "--font-pixel-label", display: "swap" });
 const hand = VT323({ subsets: ["latin"], weight: "400", variable: "--font-pixel-hand", display: "swap" });
 
 const title = `CHRONOS ${FESTIVAL.year} · ${FESTIVAL.tagline}`;
@@ -30,6 +32,7 @@ export const metadata: Metadata = {
   openGraph: { type: "website", url: SITE_URL, siteName: "CHRONOS 2026", locale: "en_IN", title, description },
   twitter: { card: "summary_large_image", title, description },
   robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large" } },
+  appleWebApp: { capable: true, title: "Chronos", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = { themeColor: "#07070a", colorScheme: "dark", viewportFit: "cover" };
@@ -44,10 +47,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `try{if(!matchMedia("(prefers-reduced-motion: reduce)").matches)document.documentElement.classList.add("js-motion")}catch(e){}`,
           }}
         />
+        {/* Keep the browser's install prompt for Babu's own Install button */}
+        <script dangerouslySetInnerHTML={{ __html: INSTALL_BOOT }} />
       </head>
       <body>
         {children}
         <Analytics />
+        <AppSetup />
       </body>
     </html>
   );

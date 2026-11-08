@@ -14,6 +14,11 @@ import { festivalStatus, liveEventIds } from "@/lib/live";
 import { formatTime, submitRun, topRuns, type Run } from "@/lib/leaderboard";
 import type { WorldHandle, ZoneDef } from "./engine";
 import { startGameAudio } from "./audio";
+import { DPad, Guide, type ControlStyle } from "./Guide";
+import { Icon } from "./Icons";
+import { flyNitro } from "./nitroFx";
+import { InstallNudge } from "./InstallNudge";
+import { useInstall } from "@/components/install";
 import { canSharePhoto, composePhoto, downloadPhoto, sharePhoto } from "./photo";
 
 const DAY_COLORS = ["#f4b536", "#2453b3", "#e2452b"];
@@ -131,7 +136,12 @@ export function World({ days }: { days: ShowDay[] }) {
   const [zone, setZone] = useState<number | null>(null);
   const [visited, setVisited] = useState<Set<number>>(() => new Set());
   const [gears, setGears] = useState({ n: 0, total: 0 });
+  const [nitro, setNitro] = useState(1);
   const [touch, setTouch] = useState(false);
+  const [controls, setControls] = useState<ControlStyle>("joystick");
+  const [guideOpen, setGuideOpen] = useState(false);
+  const install = useInstall();
+  const [installAsk, setInstallAsk] = useState(0);
   const [finale, setFinale] = useState<"hidden" | "shown" | "done">("hidden");
   const [, setGuide] = useState<{ day: number; text: string } | null>(null);
   const [live, setLive] = useState<number[]>([]);
@@ -191,6 +201,7 @@ export function World({ days }: { days: ShowDay[] }) {
           onReady: () => setStatus("ready"),
           onGuide: setGuide,
           onSlow: () => setSlow((v) => (v === "no" ? "yes" : v)),
+          onNitroPickup: flyNitro,
         });
         world.current = handle;
       })
@@ -232,7 +243,12 @@ export function World({ days }: { days: ShowDay[] }) {
   useEffect(() => {
     const a = startGameAudio();
     audio.current = a;
-    const id = window.setInterval(() => a.setSpeed(world.current?.getSpeed() ?? 0), 120);
+    const id = window.setInterval(() => {
+      a.setSpeed(world.current?.getSpeed() ?? 0);
+      // Nitro meter for the HUD (only re-render when it visibly changes)
+      const n = world.current?.getNitro() ?? 1;
+      setNitro((prev) => (Math.abs(prev - n) > 0.01 || (n === 1 && prev !== 1) || (n === 0 && prev !== 0) ? n : prev));
+    }, 120);
     return () => {
       clearInterval(id);
       a.stop();
@@ -250,7 +266,24 @@ export function World({ days }: { days: ShowDay[] }) {
     world.current?.start();
     startedAt.current ??= performance.now();
     setStatus("playing");
+    // Babu's tutorial opens every time the game starts.
+    setGuideOpen(true);
   }, []);
+
+  // Joystick or arrow buttons, remembered on this device
+  useEffect(() => {
+    try {
+      const c = localStorage.getItem("chronos-controls");
+      if (c === "joystick" || c === "dpad") setControls(c);
+    } catch {}
+  }, []);
+  const pickControls = (c: ControlStyle) => {
+    cue("click");
+    setControls(c);
+    try {
+      localStorage.setItem("chronos-controls", c);
+    } catch {}
+  };
 
   const takePhoto = async () => {
     if (!world.current || photoBusy) return;
@@ -461,15 +494,18 @@ export function World({ days }: { days: ShowDay[] }) {
           <div id="game-menu" className="game-menu hud-menu" role="menu">
             <button type="button" role="menuitem" className="menu-item" onClick={() => (cue("click"), setMenuOpen(false), mapDialog.current?.showModal())}>
               <span>All events · fast travel</span>
-              <kbd>M</kbd>
+              <span className="menu-ico">
+                <Icon name="list" />
+                <kbd>M</kbd>
+              </span>
             </button>
             <button type="button" role="menuitem" className="menu-item" onClick={takePhoto} disabled={photoBusy}>
               <span>Capture a photo</span>
-              <span aria-hidden="true">📸</span>
+              <Icon name="camera" className="menu-ico" />
             </button>
             <button type="button" role="menuitem" className="menu-item" onClick={openBoard}>
               <span>Leaderboard</span>
-              <span aria-hidden="true">🏆</span>
+              <Icon name="trophy" className="menu-ico" />
             </button>
             <label className="menu-item menu-slider">
               <span className="flex w-full justify-between">
@@ -546,6 +582,47 @@ export function World({ days }: { days: ShowDay[] }) {
               <span>Sound</span>
               <SoundToggle className="chip" />
             </div>
+            {touch && (
+              <div className="menu-item menu-slider">
+                <span>Touch controls</span>
+                <span className="time-pick speed-pick ctrl-pick" role="radiogroup" aria-label="Touch controls">
+                  {(["joystick", "dpad"] as const).map((c) => (
+                    <button key={c} type="button" role="radio" aria-checked={controls === c} className={controls === c ? "is-on" : ""} onClick={() => pickControls(c)}>
+                      {c === "joystick" ? "Joystick" : "Arrows"}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            )}
+            {install.available && (
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={async () => {
+                  cue("click");
+                  setMenuOpen(false);
+                  if (install.canPrompt) await install.prompt();
+                  else setInstallAsk((n) => n + 1);
+                }}
+              >
+                <span>Install the app</span>
+                <Icon name="download" className="menu-ico" />
+              </button>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                cue("click");
+                setMenuOpen(false);
+                setGuideOpen(true);
+              }}
+            >
+              <span>How to play</span>
+              <Icon name="help" className="menu-ico" />
+            </button>
             <button
               type="button"
               role="menuitem"
@@ -557,11 +634,14 @@ export function World({ days }: { days: ShowDay[] }) {
               }}
             >
               <span>Back to the start</span>
-              <kbd>R</kbd>
+              <span className="menu-ico">
+                <Icon name="home" />
+                <kbd>R</kbd>
+              </span>
             </button>
             <Link href="/lite" role="menuitem" className="menu-item">
               <span>Lite version</span>
-              <span aria-hidden="true">→</span>
+              <Icon name="page" className="menu-ico" />
             </Link>
             <div className="menu-item menu-credit">
               <Credit />
@@ -597,14 +677,15 @@ export function World({ days }: { days: ShowDay[] }) {
                 {visited.size}/{events.length}
               </b>
             </span>
-            {gears.total > 0 && (
-              <span className="stat">
-                <small>Gears</small>
-                <b>
-                  {gears.n}/{gears.total}
-                </b>
-              </span>
-            )}
+            <span className="stat stat-nitro" aria-label={`Nitro ${Math.round(nitro * 100)} percent, ${gears.n} cans collected`}>
+              <small>Nitro</small>
+              <b>
+                <Icon name="nitro" className="stat-ico" />
+                <span className={`nitro-bar ${nitro < 0.02 ? "is-empty" : ""}`} aria-hidden="true">
+                  <i style={{ width: `${Math.round(nitro * 100)}%` }} />
+                </span>
+              </b>
+            </span>
           </div>
         </header>
 
@@ -663,6 +744,23 @@ export function World({ days }: { days: ShowDay[] }) {
           </article>
         )}
 
+        {!touch && (
+          <div className={`nitro-dock ${nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`} aria-label={`Nitro ${Math.round(nitro * 100)} percent`}>
+            <Icon name="nitro" className="nitro-dock-ico" />
+            <span className="nitro-dock-body">
+              <span className="nitro-dock-top">
+                <span>{nitro < 0.02 ? "Nitro empty" : "Nitro"}</span>
+                <span className="nitro-dock-pct">{Math.round(nitro * 100)}%</span>
+              </span>
+              <span className="nitro-dock-bar" aria-hidden="true">
+                <i style={{ width: `${Math.round(nitro * 100)}%` }} />
+              </span>
+              <span className="nitro-dock-hint">
+                Hold <kbd>Shift</kbd> · cans refill 33%
+              </span>
+            </span>
+          </div>
+        )}
         {!touch && !current && (
           <p className="hud-help label">
             <kbd>W A S D</kbd> drive · <kbd>Shift</kbd> boost · <kbd>Space</kbd> brake · <kbd>R</kbd> reset · drive into a glowing ring
@@ -670,20 +768,44 @@ export function World({ days }: { days: ShowDay[] }) {
         )}
         {touch && (
           <>
-            <Joystick world={world} />
+            {controls === "dpad" ? <DPad world={world} /> : <Joystick world={world} />}
             <button
               type="button"
-              className="boost"
+              className={`boost ${nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
+              style={{ ["--nitro" as string]: nitro }}
+              aria-label={`Nitro boost, ${Math.round(nitro * 100)} percent`}
               onPointerDown={() => world.current && (world.current.input.boost = true)}
               onPointerUp={() => world.current && (world.current.input.boost = false)}
               onPointerCancel={() => world.current && (world.current.input.boost = false)}
               onPointerLeave={() => world.current && (world.current.input.boost = false)}
             >
-              Boost
+              <span className="boost-ring" aria-hidden="true" />
+              <span className="boost-face">
+                <Icon name="nitro" className="boost-ico" />
+                <span className="boost-label">{nitro < 0.02 ? "Empty" : "Nitro"}</span>
+                <span className="boost-pct">{Math.round(nitro * 100)}%</span>
+              </span>
             </button>
           </>
         )}
       </div>
+
+      {status === "playing" && (
+        <InstallNudge busy={guideOpen || menuOpen || zone !== null || finale === "shown" || photo !== null} request={installAsk} />
+      )}
+
+      {guideOpen && status === "playing" && !menuOpen && (
+        <Guide
+          touch={touch}
+          arrowOn={arrowOn}
+          controls={controls}
+          onControls={pickControls}
+          onClose={() => {
+            cue("click");
+            setGuideOpen(false);
+          }}
+        />
+      )}
 
       {/* ---------------------------------------------------------- Start screen */}
       {status !== "playing" && (
@@ -705,16 +827,22 @@ export function World({ days }: { days: ShowDay[] }) {
             {FESTIVAL.dates} · {FESTIVAL.place}
           </p>
           <p className="max-w-md text-sm leading-relaxed sm:text-base">
-            Drive the SIC rover around the Chronos island. Every glowing ring is an event: park on it to see the details and register. Collect the gears on the way.
+            Drive the SIC rover around the Chronos island. Every glowing ring is an event: park on it to see the details and register. Grab the glowing nitro cans on the way to refill your boost.
           </p>
           {status === "nogl" ? (
             <Link href="/lite" className="sticker sticker-big">
-              Open the story version →
+              Open the story version <Icon name="arrow" className="btn-ico" />
             </Link>
           ) : (
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button type="button" className="sticker sticker-big" onClick={start} disabled={status === "loading"}>
-                {status === "loading" ? "Building the island…" : "Start the engine →"}
+                {status === "loading" ? (
+                  "Building the island…"
+                ) : (
+                  <>
+                    Start the engine <Icon name="arrow" className="btn-ico" />
+                  </>
+                )}
               </button>
               <Link href="/lite" className="chip">
                 Lite version (scroll story)
@@ -784,7 +912,9 @@ export function World({ days }: { days: ShowDay[] }) {
               <div className="trial-score">
                 <p className="label text-[0.6rem]">Your time</p>
                 <p className="trial-time">{formatTime(finishSec)}</p>
-                <p className="label text-[0.6rem]">⚙ {gears.n} {gears.n === 1 ? "gear" : "gears"}</p>
+                <p className="label flex items-center gap-1 text-[0.6rem]">
+                  <Icon name="nitro" className="inline-ico" /> {gears.n} nitro {gears.n === 1 ? "can" : "cans"}
+                </p>
               </div>
               <div className="trial-side">
                 {assisted ? (
@@ -830,7 +960,7 @@ export function World({ days }: { days: ShowDay[] }) {
           )}
           <div className="flex flex-wrap justify-center gap-3">
             <a href={ALL_EVENTS_URL} className="sticker sticker-big" onClick={() => trackRegister("all", "3d-finale")}>
-              Register now →
+              Register now <Icon name="arrow" className="btn-ico" />
             </a>
             <button type="button" className="chip" onClick={() => setFinale("done")}>
               Keep driving
@@ -850,7 +980,7 @@ export function World({ days }: { days: ShowDay[] }) {
               </h2>
             </div>
             <button type="button" className="chip" onClick={() => mapDialog.current?.close()} aria-label="Close">
-              ✕
+              <Icon name="close" />
             </button>
           </div>
           {days.map((d, di) => (
@@ -865,7 +995,7 @@ export function World({ days }: { days: ShowDay[] }) {
                     <div className="min-w-0">
                       <p className="font-display text-base font-extrabold uppercase sm:text-lg">
                         {live.includes(e.id) && <span className="live-badge">Live</span>}
-                        {e.name} {visited.has(e.id) && <span aria-label="visited">✓</span>}
+                        {e.name} {visited.has(e.id) && <Icon name="check" className="inline-ico" title="visited" />}
                       </p>
                       <p className="label text-[0.58rem] opacity-70">{[e.venue, time(e.startsAt), e.team].filter(Boolean).join(" · ")}</p>
                     </div>
@@ -905,7 +1035,7 @@ export function World({ days }: { days: ShowDay[] }) {
               </h2>
             </div>
             <button type="button" className="chip" onClick={() => boardDialog.current?.close()} aria-label="Close">
-              ✕
+              <Icon name="close" />
             </button>
           </div>
           <p className="text-sm leading-relaxed">
@@ -921,7 +1051,9 @@ export function World({ days }: { days: ShowDay[] }) {
                   <span className="board-place">#{r.place}</span>
                   <span className="truncate">{r.name}</span>
                   <span className="board-time">{formatTime(r.seconds)}</span>
-                  <span className="label text-[0.55rem] opacity-60">⚙ {r.gears}</span>
+                  <span className="label flex items-center gap-1 text-[0.55rem] opacity-60">
+                    <Icon name="nitro" className="inline-ico" /> {r.gears}
+                  </span>
                 </li>
               ))}
             </ol>

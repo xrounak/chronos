@@ -28,6 +28,8 @@ export type WorldCallbacks = {
   onGuide: (guide: { day: number; text: string } | null) => void;
   /** Called once if the game keeps running slowly on this device. */
   onSlow?: () => void;
+  /** A nitro can was picked up at this point on screen (CSS pixels, viewport); `tank` is the new level. */
+  onNitroPickup?: (x: number, y: number, tank: number) => void;
 };
 
 export type WorldHandle = {
@@ -40,6 +42,8 @@ export type WorldHandle = {
   respawn: () => void;
   /** Rover speed from 0 (still) to 1 (full boost). */
   getSpeed: () => number;
+  /** Nitro left in the tank, 0 (empty) to 1 (full). */
+  getNitro: () => number;
   /** 0 = Chill, 1 = Normal, 2 = Fast. */
   setSpeedLevel: (level: number) => void;
   /** Events happening right now get a pulsing beam and a LIVE tag. */
@@ -373,12 +377,17 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   scene.fog = fog;
   /** Beams and lamps shine brighter after dark. */
   let nightBoost = 1;
+  /** 0 in full day, 1 at night. */
+  let nightAmt = 0;
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 800);
   let baseFov = 50;
 
   const hemi = new THREE.HemisphereLight("#fff6e0", "#5a7a3a", 1.5);
   scene.add(hemi);
+  // A soft cool fill from the side away from the sun, so shaded faces keep some shape.
+  const fill = new THREE.DirectionalLight("#bcd6ff", 0.45);
+  scene.add(fill, fill.target);
   const sun = new THREE.DirectionalLight("#fff1d6", 2.2);
   sun.castShadow = !lowPower;
   sun.shadow.mapSize.set(1024, 1024);
@@ -434,6 +443,16 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     const plaza = new THREE.Color("#efe1c4");
     const sand = new THREE.Color("#f0d29a");
     const day = DAY_COLORS.map((c) => new THREE.Color(c));
+    // Painted-in detail, baked once into the vertex colours (costs nothing per frame):
+    // light and dark meadow patches, dry yellow streaks, a dirt edge along every road.
+    const meadow = new THREE.Color("#9fd25c");
+    const deep = new THREE.Color("#3e8840");
+    const dry = new THREE.Color("#c3c56a");
+    const dirt = new THREE.Color("#c4a676");
+    const hash = (x: number, z: number) => {
+      const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+      return s - Math.floor(s);
+    };
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
@@ -441,8 +460,16 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       pos.setY(i, h);
       const e = shore(x, z);
       col.copy(grassA).lerp(grassB, Math.min(1, Math.max(0, h / 4.5)));
+      const patch = Math.sin(x * 0.045 + 1.3) * Math.cos(z * 0.038 - 0.7) + 0.5 * Math.sin(x * 0.11 - z * 0.09 + 2);
+      if (patch > 0.45) col.lerp(meadow, smooth(0.45, 1.2, patch) * 0.7);
+      else if (patch < -0.5) col.lerp(deep, smooth(-0.5, -1.2, patch) * 0.6);
+      const streak = Math.sin(x * 0.021 - z * 0.033 + 4) * Math.sin(z * 0.07 + 1);
+      if (streak > 0.6) col.lerp(dry, (streak - 0.6) * 0.9);
+      const o = openness(x, z);
+      if (o >= 0 && o < 2.4) col.lerp(dirt, (1 - o / 2.4) * 0.75);
+      col.multiplyScalar(0.96 + hash(x, z) * 0.08);
       if (e > 0.86) col.lerp(sand, smooth(0.86, 0.91, e));
-      if (openness(x, z) < 0) {
+      if (o < 0) {
         if (onTrack(x, z) || onBranch(x, z)) col.copy(road);
         else {
           col.copy(plaza);
@@ -464,6 +491,43 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   water.rotation.x = -Math.PI / 2;
   water.position.y = -1.2;
   scene.add(water);
+
+  // Shallows and foam: two flat bands that follow the shoreline. Where the land is higher
+  // it hides them, so the foam only shows right at the water's edge.
+  const shoreBand = (k1: number, k2: number, inner: THREE.Color, outer: THREE.Color, a1: number, a2: number) => {
+    const n = 160;
+    const p1 = shorePoints(k1, n);
+    const p2 = shorePoints(k2, n);
+    const pos: number[] = [];
+    const colors: number[] = [];
+    const index: number[] = [];
+    for (let i = 0; i < n; i++) {
+      pos.push(p1[i][0], 0, p1[i][1], p2[i][0], 0, p2[i][1]);
+      colors.push(inner.r, inner.g, inner.b, a1, outer.r, outer.g, outer.b, a2);
+      const j = (i + 1) % n;
+      index.push(i * 2, j * 2, i * 2 + 1, i * 2 + 1, j * 2, j * 2 + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(colors, 4));
+    g.setIndex(index);
+    g.computeVertexNormals();
+    return track(g);
+  };
+  const deepWater = new THREE.Color("#2f8fb3");
+  const shallows = new THREE.Mesh(
+    shoreBand(0.86, 1.16, new THREE.Color("#63d3d0"), deepWater, 1, 0),
+    keepMat(new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide })),
+  );
+  shallows.position.y = -1.17;
+  shallows.renderOrder = 1;
+  scene.add(shallows);
+  const foamMat = keepMat(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, opacity: 0.8, side: THREE.DoubleSide }));
+  const white = new THREE.Color("#ffffff");
+  const foam = new THREE.Mesh(shoreBand(0.88, 0.965, white, white, 0.95, 0), foamMat);
+  foam.position.y = -1.13;
+  foam.renderOrder = 1;
+  scene.add(foam);
 
   // Road dashes down the track and along each branch
   {
@@ -964,14 +1028,29 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     unit.head.dispose();
   }
 
+  /** How bright the SIC and GEC PALAMU blocks glow (brighter after dark, gently pulsing). */
+  const wordGlow = { value: 0.3 };
+  const haloMats: THREE.SpriteMaterial[] = [];
+  const haloTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d")!;
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,0.9)");
+    grad.addColorStop(0.4, "rgba(255,255,255,0.35)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    return canvasTex(c, 1);
+  })();
   // ---- words: chunky voxel letters standing in the world, and paint on the ground
   {
     const WORD_COLORS = ["#e2452b", "#2453b3", "#f4b536", "#1f9c86", "#f08aa0", CREAM];
-    type Letter = { ch: string; x: number; z: number; face: number; size: number; color: string };
+    type Letter = { ch: string; x: number; z: number; face: number; size: number; color: string; glow: boolean };
     const letters: Letter[] = [];
     const widthOf = (ch: string) => (GLYPHS[ch] ?? GLYPHS[" "])[0].length;
     /** A straight word centred on (cx, cz); `face` turns its front (+z) to the viewer. */
-    const word = (text: string, cx: number, cz: number, face: number, size: number, colorOffset = 0) => {
+    const word = (text: string, cx: number, cz: number, face: number, size: number, colorOffset = 0, glow = false) => {
       const cols = text.split("").reduce((n, ch) => n + widthOf(ch) + 1, -1);
       const rx = Math.cos(face);
       const rz = -Math.sin(face);
@@ -980,20 +1059,36 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       for (const ch of text) {
         const w = widthOf(ch);
         const off = (col + w / 2 - cols / 2) * size;
-        if (ch !== " ") letters.push({ ch, x: cx + rx * off, z: cz + rz * off, face, size, color: WORD_COLORS[ci++ % WORD_COLORS.length] });
+        if (ch !== " ") letters.push({ ch, x: cx + rx * off, z: cz + rz * off, face, size, color: WORD_COLORS[ci++ % WORD_COLORS.length], glow });
         col += w + 1;
       }
     };
     word("CHRONOS", 0, TOWER_Z - 22, 0, 1.35);
     word("EARNED, NEVER GIVEN.", 44, 76, -Math.PI / 2, 0.85, 2);
-    word("GEC PALAMU", -44, 0, Math.PI / 2, 1.0, 1);
+    word("GEC PALAMU", -44, 0, Math.PI / 2, 1.0, 1, true);
     word("BUILD. BREAK. REPEAT.", 44, -82, -Math.PI / 2, 0.65, 4);
-    word("SIC", -15, START_Z - 16, 0, 0.75);
+    word("SIC", -15, START_Z - 16, 0, 0.75, 0, true);
     word("2026", 15, START_Z - 16, 0, 0.6, 3);
 
     let n = 0;
     for (const l of letters) for (const row of GLYPHS[l.ch]) for (const c of row) if (c === "#") n++;
-    const vox = new THREE.InstancedMesh(track(new THREE.BoxGeometry(1, 1, 1)), keepMat(new THREE.MeshLambertMaterial({ color: "#ffffff", flatShading: true })), n);
+    // SIC and GEC PALAMU glow: their blocks light up in their own colour (a per-block flag
+    // read by a two-line shader tweak, so it is still one draw call), with a soft halo.
+    const voxMat = keepMat(new THREE.MeshLambertMaterial({ color: "#ffffff", flatShading: true }));
+    voxMat.onBeforeCompile = (sh) => {
+      sh.uniforms.uGlow = wordGlow;
+      sh.vertexShader = sh.vertexShader
+        .replace("#include <common>", ["#include <common>", "attribute float aGlow;", "varying float vGlow;"].join("\n"))
+        .replace("#include <begin_vertex>", ["#include <begin_vertex>", "vGlow = aGlow;"].join("\n"));
+      sh.fragmentShader = sh.fragmentShader
+        .replace("#include <common>", ["#include <common>", "uniform float uGlow;", "varying float vGlow;"].join("\n"))
+        .replace(
+          "#include <emissivemap_fragment>",
+          ["#include <emissivemap_fragment>", "totalEmissiveRadiance += diffuseColor.rgb * vGlow * uGlow;"].join("\n"),
+        );
+    };
+    const vox = new THREE.InstancedMesh(track(new THREE.BoxGeometry(1, 1, 1)), voxMat, n);
+    const glowFlag = new Float32Array(n);
     const shade = new THREE.InstancedMesh(track(new THREE.BoxGeometry(1, 1, 1)), mat(INK), n);
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -1018,6 +1113,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
           m4.compose(p, q, sc);
           vox.setMatrixAt(i, m4);
           vox.setColorAt(i, col);
+          glowFlag[i] = l.glow ? 1 : 0;
           p.addScaledVector(right, l.size * 0.28).addScaledVector(back, l.size * 0.45);
           p.y -= l.size * 0.28;
           m4.compose(p, q, sc);
@@ -1026,7 +1122,20 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         }
       });
       colliders.push({ x: l.x, z: l.z, r: (w * l.size) / 2 + 0.2 });
+      if (l.glow) {
+        let hm = haloMats.find((h) => h.color.getHexString() === col.getHexString());
+        if (!hm) {
+          hm = keepMat(new THREE.SpriteMaterial({ map: haloTex, color: col.clone(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.3 }));
+          haloMats.push(hm);
+        }
+        const halo = new THREE.Sprite(hm);
+        halo.position.set(l.x, y0 + 3.6 * l.size, l.z).addScaledVector(back, l.size * 0.6);
+        halo.scale.set(w * l.size * 3.2, 11 * l.size, 1);
+        halo.renderOrder = 2;
+        scene.add(halo);
+      }
     }
+    vox.geometry.setAttribute("aGlow", new THREE.InstancedBufferAttribute(glowFlag, 1));
     for (const m of [vox, shade]) {
       m.castShadow = !lowPower;
       m.receiveShadow = !lowPower;
@@ -1134,13 +1243,31 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   const freeSpot = (x: number, z: number, pad: number) => !colliders.some((c) => c.r > 1.5 && Math.hypot(c.x - x, c.z - z) < c.r + pad);
   {
     const trunkGeo = track(new THREE.CylinderGeometry(0.25, 0.35, 1.6, 5));
-    const leafGeo = track(new THREE.ConeGeometry(1.6, 3.6, 6));
-    const roundGeo = track(new THREE.IcosahedronGeometry(1.6, 0));
+    // Pines get a second, smaller tier; blossom trees get a little top puff. Same draw
+    // calls as before (still one instanced mesh each), just a few more triangles.
+    const leafGeo = (() => {
+      const a = new THREE.ConeGeometry(1.6, 2.6, 6);
+      a.translate(0, -0.5, 0);
+      const b = new THREE.ConeGeometry(1.15, 2.1, 6);
+      b.translate(0, 0.9, 0);
+      b.rotateY(0.5);
+      return track(mergeGeometries([a.toNonIndexed(), b.toNonIndexed()])!);
+    })();
+    const roundGeo = (() => {
+      const a = new THREE.IcosahedronGeometry(1.6, 0);
+      const b = new THREE.IcosahedronGeometry(0.95, 0);
+      b.translate(0.5, 1.05, -0.2);
+      const c = new THREE.IcosahedronGeometry(0.8, 0);
+      c.translate(-0.8, 0.5, 0.6);
+      return track(mergeGeometries([a, b, c])!);
+    })();
     const rockGeo = track(new THREE.DodecahedronGeometry(1, 0));
     const N = lowPower ? 130 : 230;
     const trunks = new THREE.InstancedMesh(trunkGeo, mat("#7a5233"), N);
-    const leaves = new THREE.InstancedMesh(leafGeo, mat("#2f7d46"), N);
-    const rounds = new THREE.InstancedMesh(roundGeo, mat("#f08aa0"), N);
+    const leaves = new THREE.InstancedMesh(leafGeo, keepMat(new THREE.MeshLambertMaterial({ color: "#ffffff", flatShading: true })), N);
+    const rounds = new THREE.InstancedMesh(roundGeo, keepMat(new THREE.MeshLambertMaterial({ color: "#ffffff", flatShading: true })), N);
+    const pineTones = ["#2f7d46", "#2a6e3f", "#3a8a4c", "#246b45"].map((c) => new THREE.Color(c));
+    const blossomTones = ["#f08aa0", "#f6a5b6", "#e9768f", "#f4b536", "#ff9a62"].map((c) => new THREE.Color(c));
     const rocks = new THREE.InstancedMesh(rockGeo, mat("#a39a8c"), 60);
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -1160,9 +1287,11 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       trunks.setMatrixAt(placed, m4);
       if (rand() < 0.3) {
         m4.compose(new THREE.Vector3(x, y + 2.8 * k, z), q, s);
+        rounds.setColorAt(roundCount, blossomTones[rand() < 0.8 ? Math.floor(rand() * 3) : 3 + Math.floor(rand() * 2)]);
         rounds.setMatrixAt(roundCount++, m4);
       } else {
         m4.compose(new THREE.Vector3(x, y + 3.2 * k, z), q, s);
+        leaves.setColorAt(coneCount, pineTones[Math.floor(rand() * pineTones.length)]);
         leaves.setMatrixAt(coneCount++, m4);
       }
       colliders.push({ x, z, r: 0.7 * k });
@@ -1189,6 +1318,65 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       m.receiveShadow = !lowPower;
       scene.add(m);
     }
+  }
+  // ---- grass tufts and flower clumps: two instanced meshes, no shadows, one draw call each
+  {
+    const tuftGeo = track(new THREE.ConeGeometry(0.16, 0.75, 4));
+    tuftGeo.translate(0, 0.3, 0);
+    const flowerGeo = track(new THREE.OctahedronGeometry(0.2, 0));
+    flowerGeo.translate(0, 0.42, 0);
+    const NT = lowPower ? 900 : 2000;
+    const NF = lowPower ? 260 : 520;
+    const tufts = new THREE.InstancedMesh(tuftGeo, keepMat(new THREE.MeshLambertMaterial({ color: "#ffffff", flatShading: true })), NT);
+    const flowers = new THREE.InstancedMesh(flowerGeo, keepMat(new THREE.MeshLambertMaterial({ color: "#ffffff", flatShading: true })), NF);
+    const r = rng(2026);
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const s = new THREE.Vector3();
+    const v = new THREE.Vector3();
+    const c = new THREE.Color();
+    const grassTones = ["#5aa845", "#6fb84b", "#4a9440", "#86c456"];
+    const petals = ["#fff3dc", "#f4b536", "#e2452b", "#f08aa0", "#7fa8ff"];
+    const ok = (x: number, z: number) => shore(x, z) < 0.86 && openness(x, z) > 1.2 && freeSpot(x, z, 0.6);
+    let nt = 0;
+    for (let tries = 0; nt < NT && tries < NT * 6; tries++) {
+      // Tufts gather in loose clumps around random seeds
+      const cx = (r() * 2 - 1) * ISLAND_A;
+      const cz = (r() * 2 - 1) * ISLAND_B;
+      for (let k = 0; k < 5 && nt < NT; k++) {
+        const x = cx + (r() - 0.5) * 5;
+        const z = cz + (r() - 0.5) * 5;
+        if (!ok(x, z)) continue;
+        const sc = 0.7 + r() * 0.8;
+        s.set(sc, sc * (0.8 + r() * 0.6), sc);
+        q.setFromEuler(new THREE.Euler((r() - 0.5) * 0.4, r() * 6, (r() - 0.5) * 0.4));
+        m4.compose(v.set(x, terrain(x, z) - 0.05, z), q, s);
+        tufts.setMatrixAt(nt, m4);
+        tufts.setColorAt(nt, c.set(grassTones[Math.floor(r() * grassTones.length)]));
+        nt++;
+      }
+    }
+    let nf = 0;
+    for (let tries = 0; nf < NF && tries < NF * 8; tries++) {
+      const cx = (r() * 2 - 1) * ISLAND_A;
+      const cz = (r() * 2 - 1) * ISLAND_B;
+      const tone = petals[Math.floor(r() * petals.length)];
+      for (let k = 0; k < 7 && nf < NF; k++) {
+        const x = cx + (r() - 0.5) * 6;
+        const z = cz + (r() - 0.5) * 6;
+        if (!ok(x, z)) continue;
+        const sc = 0.7 + r() * 0.6;
+        s.set(sc, sc, sc);
+        q.setFromAxisAngle(v.set(0, 1, 0), r() * 6);
+        m4.compose(v.set(x, terrain(x, z), z), q, s);
+        flowers.setMatrixAt(nf, m4);
+        flowers.setColorAt(nf, c.set(tone));
+        nf++;
+      }
+    }
+    tufts.count = nt;
+    flowers.count = nf;
+    scene.add(tufts, flowers);
   }
   const clouds: THREE.Group[] = [];
   {
@@ -1223,8 +1411,30 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     g.fillRect(0, 0, 128, 128);
     return canvasTex(c, 1);
   })();
-  const glowMat = keepMat(new THREE.SpriteMaterial({ map: glowTex, color: "#ffd27a", transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 }));
-  const gearMat = keepMat(new THREE.MeshLambertMaterial({ color: "#f4b536", emissive: "#a86200", emissiveIntensity: 0.6, flatShading: true }));
+  const glowMat = keepMat(new THREE.SpriteMaterial({ map: glowTex, color: "#ff9a62", transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 }));
+  // Pickups are nitro cans: red body, cream band, ink cap and nozzle. One merged mesh each.
+  const gearMat = keepMat(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: "#5a1206", emissiveIntensity: 0.6, flatShading: true }));
+  const canGeo = (() => {
+    const part = (g: THREE.BufferGeometry, color: string, y: number) => {
+      const out = (g.index ? g.toNonIndexed() : g) as THREE.BufferGeometry;
+      out.deleteAttribute("uv");
+      out.translate(0, y, 0);
+      const c = new THREE.Color(color);
+      const n = out.attributes.position.count;
+      const arr = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) arr.set([c.r, c.g, c.b], i * 3);
+      out.setAttribute("color", new THREE.BufferAttribute(arr, 3));
+      return out;
+    };
+    const merged = mergeGeometries([
+      part(new THREE.CylinderGeometry(0.46, 0.46, 1.25, 12), "#e2452b", 0),
+      part(new THREE.CylinderGeometry(0.48, 0.48, 0.3, 12), "#fff3dc", 0.05),
+      part(new THREE.CylinderGeometry(0.3, 0.46, 0.22, 12), "#1d1813", 0.73),
+      part(new THREE.CylinderGeometry(0.12, 0.12, 0.28, 8), "#f4b536", 0.95),
+      part(new THREE.CylinderGeometry(0.47, 0.47, 0.1, 12), "#1d1813", -0.62),
+    ])!;
+    return track(merged);
+  })();
   {
     const r2 = rng(42);
     for (let tries = 0; gears.length < 34 && tries < 1500; tries++) {
@@ -1233,7 +1443,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       if (shore(x, z) > 0.84) continue;
       if (colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 2)) continue;
       if (gears.some((g) => Math.hypot(g.x - x, g.z - z) < 10)) continue;
-      const m = new THREE.Mesh(gearGeo, gearMat);
+      const m = new THREE.Mesh(canGeo, gearMat);
+      m.rotation.z = 0.25;
       m.position.set(x, ground(x, z) + 1.4, z);
       m.castShadow = !lowPower;
       scene.add(m);
@@ -1246,6 +1457,11 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     }
   }
   let collected = 0;
+  /** Nitro tank, 0..1: a full tank lasts about 3.5 s of boost. */
+  let nitroTank = 1;
+  const NITRO_BURN = 0.28;
+  const NITRO_REFILL = 0.02;
+  const NITRO_PER_CAN = 0.33;
   cb.onCollect(0, gears.length);
 
   // ---- cones you can knock over
@@ -1290,6 +1506,28 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   box(0.08, 1.6, 0.08, INK, body, 0.7, 1.95, -0.9);
   const flag = box(0.6, 0.35, 0.04, "#f4b536", body, 1.0, 3.2, -0.9);
   flag.position.y = 3.2;
+  // Details: a cream racing stripe, side skirts, a roof light bar, tail lights and a bumper
+  box(0.5, 0.02, 3.22, CREAM, body, 0, 0.9, 0);
+  box(0.06, 0.18, 2.6, INK, body, 1.12, 0.45, 0);
+  box(0.06, 0.18, 2.6, INK, body, -1.12, 0.45, 0);
+  box(1.3, 0.16, 0.3, INK, body, 0, 2.02, 0.3);
+  box(2.3, 0.25, 0.25, INK, body, 0, 0.5, -1.62);
+  const roofLampMat = keepMat(new THREE.MeshBasicMaterial({ color: "#ffe9a8" }));
+  const tailMat = keepMat(new THREE.MeshBasicMaterial({ color: "#ff4a3a" }));
+  {
+    const lampGeo = track(new THREE.BoxGeometry(0.22, 0.12, 0.1));
+    [-0.45, -0.15, 0.15, 0.45].forEach((x) => {
+      const l = new THREE.Mesh(lampGeo, roofLampMat);
+      l.position.set(x, 2.2, 0.46);
+      body.add(l);
+    });
+    [-0.85, 0.85].forEach((x) => {
+      const l = new THREE.Mesh(lampGeo, tailMat);
+      l.scale.set(1.4, 1.3, 1);
+      l.position.set(x, 0.85, -1.62);
+      body.add(l);
+    });
+  }
   [-0.7, 0.7].forEach((x) => {
     const l = new THREE.Mesh(track(new THREE.BoxGeometry(0.4, 0.25, 0.1)), keepMat(new THREE.MeshBasicMaterial({ color: "#fff7c2" })));
     l.position.set(x, 0.75, 1.62);
@@ -1298,6 +1536,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   const wheels: THREE.Object3D[] = [];
   const wheelGeo = track(new THREE.CylinderGeometry(0.55, 0.55, 0.5, 10));
   wheelGeo.rotateZ(Math.PI / 2);
+  const hubGeo = track(new THREE.CylinderGeometry(0.26, 0.26, 0.54, 8));
+  hubGeo.rotateZ(Math.PI / 2);
   [
     [-1.2, 1.1],
     [1.2, 1.1],
@@ -1310,6 +1550,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     m.castShadow = !lowPower;
     w.add(m);
     box(0.52, 0.18, 0.18, "#f4b536", m, 0, -0.09, 0);
+    // Hub caps on both faces of the tyre
+    const hub = new THREE.Mesh(hubGeo, mat("#d9d2bd"));
+    m.add(hub);
     rover.add(w);
     wheels.push(w);
   });
@@ -1340,6 +1583,62 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   /** 0 = off, 1 = full nitro; eased so the flames and the view widen smoothly. */
   let nitroLevel = 0;
   scene.add(rover);
+
+  // Headlight beams: a soft glowing fan on the ground ahead, only after dark.
+  const beamMat = keepMat(
+    new THREE.MeshBasicMaterial({
+      map: (() => {
+        const c = document.createElement("canvas");
+        c.width = 64;
+        c.height = 128;
+        const g = c.getContext("2d")!;
+        // Canvas top is the end nearest the rover (the plane is laid flat facing forward):
+        // narrow and bright at the lamps, spreading wide and fading down the road.
+        const grad = g.createLinearGradient(0, 0, 0, 128);
+        grad.addColorStop(0, "rgba(255,240,190,0.9)");
+        grad.addColorStop(1, "rgba(255,240,190,0)");
+        g.fillStyle = grad;
+        g.beginPath();
+        g.moveTo(20, 0);
+        g.lineTo(44, 0);
+        g.lineTo(64, 128);
+        g.lineTo(0, 128);
+        g.closePath();
+        g.fill();
+        return canvasTex(c, 1);
+      })(),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      opacity: 0,
+    }),
+  );
+  const beam = new THREE.Mesh(track(new THREE.PlaneGeometry(7.5, 12)), beamMat);
+  beam.rotation.x = -Math.PI / 2;
+  beam.position.set(0, 0.12, 7.6);
+  beam.visible = false;
+  rover.add(beam);
+
+  // Drifting motes by day, fireflies by night: one small point cloud that follows the rover.
+  const MOTES = lowPower ? 60 : 130;
+  const moteBox = { w: 70, h: 14 };
+  const motePos = new Float32Array(MOTES * 3);
+  const moteVel = new Float32Array(MOTES * 3);
+  {
+    const r = rng(77);
+    for (let i = 0; i < MOTES; i++) {
+      motePos.set([(r() - 0.5) * moteBox.w, 0.5 + r() * moteBox.h, (r() - 0.5) * moteBox.w], i * 3);
+      moteVel.set([(r() - 0.5) * 0.6, (r() - 0.3) * 0.25, (r() - 0.5) * 0.6], i * 3);
+    }
+  }
+  const moteGeo = track(new THREE.BufferGeometry());
+  moteGeo.setAttribute("position", new THREE.BufferAttribute(motePos, 3));
+  const moteMat = keepMat(
+    new THREE.PointsMaterial({ map: glowTex, color: "#fff3dc", size: 0.5, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5 }),
+  );
+  const motes = new THREE.Points(moteGeo, moteMat);
+  motes.frustumCulled = false;
+  scene.add(motes);
 
   // The guide arrow: a flat paper cut-out that always faces the camera and turns on screen.
   const arrowTex = DAY_COLORS.map((color) => {
@@ -1607,6 +1906,14 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     sun.color.set("#fff1d6").lerp(DUSK_SUN, dusk * 0.6).lerp(MOON, (1 - day) * 0.7);
     const night = 1 - day;
     nightBoost = 1 + night * 1.6;
+    nightAmt = night;
+    for (const h of haloMats) h.opacity = 0.3 + night * 0.65;
+    beamMat.opacity = smooth(0.35, 0.9, night) * 0.55;
+    beam.visible = beamMat.opacity > 0.02;
+    moteMat.color.set("#fff3dc").lerp(new THREE.Color("#ffe066"), night);
+    moteMat.size = 0.45 + night * 0.35;
+    moteMat.opacity = 0.35 + night * 0.6;
+    fill.intensity = 0.3 + night * 0.25;
     lampBulbMat.color.set("#d9d2bd").lerp(WARM, night);
     lampGlowMat.opacity = night * 0.45;
     // Gears shine a little more after dark
@@ -1638,8 +1945,11 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     // Driving (joystick held or a drive key down) brings the camera back behind the rover.
     driving = input.held || kUp + kDown + kLeft + kRight > 0;
     const steerIn = started ? Math.max(-1, Math.min(1, kLeft - kRight - input.x)) : 0;
-    const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") || input.boost;
+    // Boost burns nitro; with an empty tank it does nothing until a can or the slow refill.
+    const boost = (keys.has("ShiftLeft") || keys.has("ShiftRight") || input.boost) && nitroTank > 0.01;
     const nitroWant = boost && started && car.speed > 4 && !car.air ? 1 : 0;
+    if (nitroWant) nitroTank = Math.max(0, nitroTank - NITRO_BURN * dt);
+    else if (started) nitroTank = Math.min(1, nitroTank + NITRO_REFILL * dt);
     nitroLevel += (nitroWant - nitroLevel) * Math.min(1, dt * (nitroWant ? 8 : 4));
     nitro.visible = nitroLevel > 0.03;
     if (nitro.visible) {
@@ -1773,7 +2083,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
 
     for (const g of gears) {
       if (g.taken) continue;
-      g.m.rotation.y = t * 2 + g.x;
+      g.m.rotation.y = t * 2.2 + g.x;
       g.m.position.y = ground(g.x, g.z) + 1.4 + Math.sin(t * 2 + g.z) * 0.25;
       g.glow.position.copy(g.m.position);
       const pulse = 3.8 + Math.sin(t * 3 + g.x) * 0.6;
@@ -1783,7 +2093,14 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         g.m.visible = false;
         g.glow.visible = false;
         collected++;
+        // Each can tops up the nitro tank by a third.
+        nitroTank = Math.min(1, nitroTank + NITRO_PER_CAN);
         cb.onCollect(collected, gears.length);
+        if (cb.onNitroPickup) {
+          const p = g.m.position.clone().project(camera);
+          const r = canvas.getBoundingClientRect();
+          cb.onNitroPickup(r.left + ((p.x + 1) / 2) * r.width, r.top + ((1 - p.y) / 2) * r.height, nitroTank);
+        }
       }
     }
 
@@ -1920,6 +2237,33 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       n.position.y = terrain(CENTERS[i].x, CENTERS[i].y) + 30 + Math.sin(t * 1.4 + i * 2) * 1.2;
     });
     for (const g of spinning) g.rotation.y = t * 0.8;
+    wordGlow.value = (0.3 + nightAmt * 0.9) * (0.85 + Math.sin(t * 2.2) * 0.15);
+    // Foam laps in and out; motes drift (fireflies wander and blink at night)
+    foamMat.opacity = 0.55 + Math.sin(t * 1.3) * 0.25;
+    foam.scale.setScalar(1 + Math.sin(t * 1.3) * 0.006);
+    if (frame % 2 === 0) {
+      const ox = car.x;
+      const oz = car.z;
+      const half = moteBox.w / 2;
+      const wob = nightAmt * 1.2;
+      for (let i = 0; i < MOTES; i++) {
+        const j = i * 3;
+        motePos[j] += (moteVel[j] + Math.sin(t * 1.7 + i) * wob) * dt * 2;
+        motePos[j + 1] += (moteVel[j + 1] + Math.cos(t * 1.3 + i * 2) * wob * 0.4) * dt * 2;
+        motePos[j + 2] += (moteVel[j + 2] + Math.cos(t * 1.1 + i) * wob) * dt * 2;
+        // Keep them in a box around the rover, wrapping at the edges
+        const dx = motePos[j] - ox;
+        const dz = motePos[j + 2] - oz;
+        if (dx > half) motePos[j] -= moteBox.w;
+        else if (dx < -half) motePos[j] += moteBox.w;
+        if (dz > half) motePos[j + 2] -= moteBox.w;
+        else if (dz < -half) motePos[j + 2] += moteBox.w;
+        const gy = terrain(motePos[j], motePos[j + 2]);
+        if (motePos[j + 1] > gy + moteBox.h) motePos[j + 1] = gy + 0.5;
+        else if (motePos[j + 1] < gy + 0.3) motePos[j + 1] = gy + moteBox.h;
+      }
+      moteGeo.attributes.position.needsUpdate = true;
+    }
     for (const [i, c] of clouds.entries()) {
       c.position.x += dt * (0.6 + (i % 3) * 0.3);
       if (c.position.x > 190) c.position.x = -190;
@@ -1961,6 +2305,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     camera.lookAt(camLook);
     sun.position.set(camLook.x + 40, 70, camLook.z + 30);
     sun.target.position.copy(camLook);
+    fill.position.set(camLook.x - 50, 30, camLook.z - 40);
+    fill.target.position.copy(camLook);
 
     renderer.render(scene, camera);
     if (frame % 2 === 0) drawMinimap();
@@ -1999,6 +2345,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       lookPitch = Math.max(-0.45, Math.min(0.9, lookPitch + pitch));
     },
     getSpeed: () => Math.min(1, Math.abs(car.speed) / (32 * speedScale)),
+    getNitro: () => nitroTank,
     setSpeedLevel(level) {
       speedScale = SPEED_LEVELS[level] ?? SPEED_LEVELS[1];
     },

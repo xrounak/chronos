@@ -51,10 +51,10 @@
 
 @layer components {
   /* Small uppercase label */
-  /* Pixel caps label (Silkscreen is wide already, so little extra spacing) */
+  /* Small caps label (Chakra Petch: readable at small sizes) */
   .label {
     font-family: var(--font-label);
-    font-weight: 400;
+    font-weight: 600;
     font-size: 0.75rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;

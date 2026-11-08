@@ -98,7 +98,7 @@ export async function composePhoto(shot: string, info: { events: number; total: 
   g.font = `400 52px ${digits}`;
   g.fillText(`${info.events}/${info.total}`, 0, 6);
   g.font = `700 32px ${label}`;
-  g.fillText(`⚙ ${info.gears} GEARS`, 0, 70);
+  g.fillText(`${info.gears} NITRO ${info.gears === 1 ? "CAN" : "CANS"}`, 0, 70);
   g.restore();
 
   // Footer
