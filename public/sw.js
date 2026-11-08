@@ -5,7 +5,7 @@
  *   on a weak connection.
  * Other sites (the SIC database, analytics) are never touched.
  */
-const VERSION = "chronos-v1";
+const VERSION = "chronos-v2";
 const STATIC = /^\/(_next\/static|photos|collage|sfx|music|icons|fonts)\//;
 
 self.addEventListener("install", (event) => {
@@ -42,7 +42,9 @@ self.addEventListener("fetch", (event) => {
 
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req)
+      // Always check with the server (a cheap 304 when nothing changed), so a new
+      // release shows up on the next open instead of a stale cached page.
+      fetch(req, { cache: "no-cache" })
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();

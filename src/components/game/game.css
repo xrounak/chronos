@@ -2438,3 +2438,446 @@
     margin-top: var(--app-top);
   }
 }
+
+/* ------------------------------------------------ Menu + Settings: two buttons, sorted panels */
+@layer components {
+  .hud > .hud-gear {
+    position: absolute;
+    top: 4.15rem;
+    left: 0.75rem;
+    z-index: 4;
+    display: grid;
+    place-items: center;
+    width: 2.8rem;
+    height: 2.8rem;
+    color: var(--ink);
+    background-color: var(--cream);
+    background-image: var(--grain);
+    border: 2.5px solid var(--ink);
+    box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .hud-gear svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    transition: rotate 0.3s ease;
+  }
+  .hud-gear:hover svg {
+    rotate: 45deg;
+  }
+  .hud-gear:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--ink);
+  }
+  .hud-gear.is-open {
+    color: var(--cream);
+    background: var(--ink);
+  }
+  /* Both panels open beside the buttons on wide screens */
+  .hud > .hud-menu {
+    top: 0.75rem;
+    left: 4.3rem;
+    max-height: calc(100svh - 1.5rem - var(--app-top, 0px));
+  }
+  .menu-head {
+    padding: 0.55rem 0.8rem 0.25rem;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.6rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--red);
+    border-top: 2px dashed rgb(29 24 19 / 0.25);
+  }
+  .menu-head:first-child {
+    border-top: 0;
+  }
+  .time-pick.pick-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .time-pick.time-pick-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .time-pick.time-pick-6 button:nth-child(3n) {
+    border-right: 0;
+  }
+  .time-pick.time-pick-6 button:nth-child(-n + 3) {
+    border-bottom: 2px solid var(--ink);
+  }
+  .menu-slider .time-pick + .menu-hint {
+    margin-top: 0.35rem;
+  }
+  .menu-hint + .time-pick {
+    margin-top: 0.25rem;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  html[data-guide-focus="menu"] .hud-gear {
+    animation: guide-pulse 1s ease-in-out infinite;
+  }
+  @media (max-width: 640px) {
+    .hud > .hud-gear {
+      top: 3.1rem;
+      left: 0.55rem;
+      width: 2.3rem;
+      height: 2.3rem;
+      box-shadow: 2px 2px 0 var(--ink);
+    }
+    .hud-gear svg {
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+    /* Phones: the panel drops below the two buttons, full width */
+    .hud > .hud-menu {
+      top: 5.85rem;
+      left: 0.55rem;
+      right: 0.55rem;
+      width: auto;
+      max-height: calc(100svh - 6.6rem - var(--app-top, 0px));
+    }
+  }
+}
+
+/* ------------------------------------------------ Loading stage (start screen, while building) */
+@layer components {
+  .ldr {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55rem;
+    width: min(20rem, 86vw);
+  }
+  .ldr-scene {
+    position: relative;
+    width: 100%;
+    height: 6.6rem;
+    overflow: hidden;
+    background-color: var(--cream);
+    background-image: var(--grain);
+    border: 3px solid var(--ink);
+    box-shadow: 5px 5px 0 var(--ink);
+  }
+  /* Blocks drop one by one, settle, then clear and start again */
+  .ldr-blocks {
+    position: absolute;
+    top: 0.7rem;
+    left: 50%;
+    display: flex;
+    gap: 2px;
+    translate: -50% 0;
+  }
+  .ldr-blocks i {
+    width: 1.15rem;
+    height: 1.15rem;
+    border: 2px solid var(--ink);
+    opacity: 0;
+    animation: ldr-drop 3.2s cubic-bezier(0.3, 1.5, 0.5, 1) infinite;
+  }
+  .ldr-blocks i:nth-child(odd) {
+    translate: 0 0.35rem;
+  }
+  .ldr-road {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2rem;
+    overflow: hidden;
+    background: #3b3430;
+    border-top: 3px solid var(--ink);
+  }
+  .ldr-dash {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 200%;
+    height: 3px;
+    margin-top: -1.5px;
+    background: repeating-linear-gradient(90deg, var(--cream) 0 18px, transparent 18px 34px);
+    animation: ldr-scroll 0.55s linear infinite;
+  }
+  .ldr-can {
+    position: absolute;
+    top: 0.35rem;
+    left: 0;
+    width: 0.6rem;
+    height: 0.95rem;
+    background: linear-gradient(var(--ink) 0 18%, var(--red) 18% 52%, var(--cream) 52% 66%, var(--red) 66%);
+    border: 1.5px solid var(--ink);
+    box-shadow: 0 0 8px 2px rgb(255 154 98 / 0.75);
+    animation: ldr-can 2.6s linear infinite;
+  }
+  .ldr-rover {
+    position: absolute;
+    left: 30%;
+    bottom: 0.9rem;
+    width: 4.2rem;
+    animation: ldr-bounce 0.32s ease-in-out infinite alternate;
+  }
+  .ldr-wheel {
+    animation: ldr-spin 0.45s linear infinite;
+  }
+  .ldr-puff {
+    position: absolute;
+    left: calc(30% - 0.6rem);
+    bottom: 1.25rem;
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 9999px;
+    background: #e9dcc4;
+    border: 2px solid rgb(29 24 19 / 0.4);
+    animation: ldr-puff 0.9s ease-out infinite;
+  }
+  .ldr-puff-b {
+    animation-delay: -0.45s;
+  }
+  .ldr-bar {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 3px;
+    width: 100%;
+    padding: 3px;
+    background: var(--ink);
+  }
+  .ldr-bar i {
+    height: 0.7rem;
+    background: rgb(255 243 220 / 0.18);
+    transition: background-color 0.25s;
+  }
+  .ldr-bar i.is-on {
+    background: var(--mustard);
+  }
+  .ldr-bar i.is-on:nth-child(n + 7) {
+    background: #ff8a3a;
+  }
+  .ldr-bar i.is-on:nth-child(n + 10) {
+    background: var(--red);
+  }
+  .ldr-line {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-family: var(--font-label);
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .ldr-line-text {
+    animation: ldr-line 1.3s ease both;
+  }
+  .ldr-line-text::after {
+    content: "…";
+  }
+  .ldr-pct {
+    font-family: var(--font-digits);
+    font-size: 0.6rem;
+  }
+  /* The start button arrives with a little stamp */
+  .start-go {
+    animation: ldr-ready 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  }
+}
+@keyframes ldr-drop {
+  0% { opacity: 0; transform: translateY(-2.6rem) rotate(-20deg); }
+  10%, 80% { opacity: 1; transform: none; }
+  92%, 100% { opacity: 0; transform: translateY(0.4rem) scale(0.6); }
+}
+@keyframes ldr-scroll {
+  to { transform: translateX(-34px); }
+}
+@keyframes ldr-can {
+  from { transform: translateX(21rem); }
+  to { transform: translateX(-2rem); }
+}
+@keyframes ldr-bounce {
+  to { transform: translateY(-2px) rotate(-1.5deg); }
+}
+@keyframes ldr-spin {
+  to { transform: rotate(-360deg); }
+}
+@keyframes ldr-puff {
+  from { opacity: 0.9; transform: translate(0, 0) scale(0.6); }
+  to { opacity: 0; transform: translate(-2.4rem, -0.6rem) scale(1.6); }
+}
+@keyframes ldr-line {
+  0% { opacity: 0; transform: translateY(0.4rem); }
+  15%, 85% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-0.3rem); }
+}
+@keyframes ldr-ready {
+  0% { opacity: 0; transform: scale(0.6) rotate(-6deg); }
+  100% { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ldr-blocks i,
+  .ldr-dash,
+  .ldr-can,
+  .ldr-rover,
+  .ldr-wheel,
+  .ldr-puff,
+  .ldr-line-text,
+  .start-go {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------ On foot: get-in prompt, door button, run */
+@layer components {
+  .mode-prompt {
+    position: absolute;
+    left: 50%;
+    bottom: 4.2rem;
+    z-index: 3;
+    translate: -50% 0;
+    padding: 0.45rem 0.9rem;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--mustard);
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 var(--ink);
+    animation: mode-pop 0.3s cubic-bezier(0.2, 1.6, 0.4, 1), boost-ready 1.4s ease-in-out infinite 0.3s;
+  }
+  .mode-prompt kbd {
+    padding: 0 0.35rem;
+    border: 2px solid currentColor;
+    border-radius: 3px;
+    background: var(--cream);
+  }
+  .door-btn {
+    position: absolute;
+    right: calc(1.4rem + env(safe-area-inset-right));
+    bottom: calc(10.6rem + env(safe-area-inset-bottom));
+    z-index: 3;
+    min-width: 5.6rem;
+    padding: 0.55rem 0.8rem;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--cream);
+    border: 3px solid var(--ink);
+    box-shadow: 3px 3px 0 var(--ink);
+    touch-action: manipulation;
+  }
+  .door-btn.is-in {
+    color: var(--cream);
+    background: var(--red);
+    animation: boost-ready 1.4s ease-in-out infinite;
+  }
+  .door-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--ink);
+  }
+  .game .boost.is-run {
+    background: conic-gradient(#1f9c86 1turn, transparent 0);
+  }
+  .game .boost.is-run .boost-face {
+    background: radial-gradient(circle at 35% 30%, #35b9a1, #1f9c86 60%, #13705f);
+  }
+  @media (max-width: 640px) {
+    .mode-prompt {
+      bottom: calc(12.4rem + env(safe-area-inset-bottom));
+      font-size: 0.7rem;
+    }
+  }
+
+  /* Customise */
+  .custom-dialog {
+    width: min(34rem, 94vw);
+  }
+  .custom-preview {
+    border: 3px solid var(--ink);
+    background: linear-gradient(#bfe3ef, #e8f4f6);
+  }
+  .custom-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .custom-head {
+    padding: 0.2rem 0 0;
+    border-top: 0;
+  }
+  .custom-row {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .custom-label {
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+  }
+  .custom-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .custom-swatch {
+    width: 1.9rem;
+    height: 1.9rem;
+    border: 2.5px solid var(--ink);
+    box-shadow: 2px 2px 0 var(--ink);
+    cursor: pointer;
+    transition: transform 0.12s;
+  }
+  .custom-swatch:hover {
+    transform: translateY(-2px);
+  }
+  .custom-swatch.is-on {
+    outline: 3px solid var(--red);
+    outline-offset: 2px;
+  }
+  .custom-swatch.is-mixed {
+    background: conic-gradient(#f4b536 0 33%, #2453b3 0 66%, #1f9c86 0);
+  }
+  @media (max-width: 480px) {
+    .custom-row {
+      grid-template-columns: 1fr;
+      gap: 0.3rem;
+    }
+  }
+}
+@keyframes mode-pop {
+  from { opacity: 0; scale: 0.7; }
+}
+
+/* On foot, phones: a Jump button on the left, above the joystick */
+@layer components {
+  .jump-btn {
+    position: absolute;
+    left: calc(1.6rem + env(safe-area-inset-left));
+    bottom: calc(12rem + env(safe-area-inset-bottom));
+    z-index: 3;
+    width: 4.4rem;
+    height: 4.4rem;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--cream);
+    background: radial-gradient(circle at 35% 30%, #35b9a1, #1f9c86 60%, #13705f);
+    border: 3px solid var(--ink);
+    border-radius: 9999px;
+    box-shadow: 3px 3px 0 var(--ink);
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .jump-btn:active {
+    transform: translate(2px, 2px) scale(0.96);
+    box-shadow: 1px 1px 0 var(--ink);
+  }
+}

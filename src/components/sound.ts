@@ -20,6 +20,45 @@ const KEY = "chronos-sound";
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+/** Mixer channels under the master: music, sound effects, and the game's engine sound. */
+let musicBus: GainNode | null = null;
+let sfxBus: GainNode | null = null;
+let engineBus: GainNode | null = null;
+
+export type VolumeKey = "master" | "music" | "sfx" | "engine";
+const VOL_KEY = "chronos-volume";
+const volumes: Record<VolumeKey, number> = (() => {
+  const base = { master: 0.8, music: 0.7, sfx: 0.9, engine: 0.6 };
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(VOL_KEY) : null;
+    if (raw) Object.assign(base, JSON.parse(raw));
+  } catch {}
+  return base;
+})();
+
+export function getVolumes() {
+  return { ...volumes };
+}
+
+/** Set one channel, 0–1 (remembered on this device). */
+export function setVolume(key: VolumeKey, v: number) {
+  volumes[key] = Math.max(0, Math.min(1, v));
+  try {
+    localStorage.setItem(VOL_KEY, JSON.stringify(volumes));
+  } catch {}
+  applyVolumes();
+}
+
+function applyVolumes() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  // a squared curve feels more even to the ear than a straight line
+  const curve = (v: number) => v * v;
+  master?.gain.setTargetAtTime(curve(volumes.master) * 1.1, t, 0.05);
+  musicBus?.gain.setTargetAtTime(curve(volumes.music) * 1.2, t, 0.05);
+  sfxBus?.gain.setTargetAtTime(curve(volumes.sfx) * 1.15, t, 0.05);
+  engineBus?.gain.setTargetAtTime(curve(volumes.engine) * 1.6, t, 0.05);
+}
 let tickSource: AudioBufferSourceNode | null = null;
 const buffers = new Map<string, AudioBuffer>();
 let on = false;
@@ -63,7 +102,7 @@ export function setTick(wanted: boolean) {
 
 /** The audio graph while sound is on, for the game's own music and engine hum. */
 export function audioGraph() {
-  return on && ctx && master ? { ctx, master } : null;
+  return on && ctx && master && musicBus && sfxBus && engineBus ? { ctx, master, music: musicBus, sfx: sfxBus, engine: engineBus } : null;
 }
 
 function startTick() {
@@ -75,7 +114,7 @@ function startTick() {
   tickSource = ctx.createBufferSource();
   tickSource.buffer = buf;
   tickSource.loop = true;
-  tickSource.connect(g).connect(master);
+  tickSource.connect(g).connect(sfxBus ?? master);
   tickSource.start();
 }
 
@@ -107,6 +146,11 @@ export async function setSound(next: boolean) {
     master = ctx.createGain();
     master.gain.value = 0.8;
     master.connect(ctx.destination);
+    musicBus = ctx.createGain();
+    sfxBus = ctx.createGain();
+    engineBus = ctx.createGain();
+    for (const b of [musicBus, sfxBus, engineBus]) b.connect(master);
+    applyVolumes();
     watchFocus();
   }
   if (pageActive()) await ctx.resume().catch(() => {});
@@ -150,6 +194,6 @@ export function cue(name: Cue) {
   src.buffer = buf;
   const g = ctx.createGain();
   g.gain.value = GAIN[name];
-  src.connect(g).connect(master);
+  src.connect(g).connect(sfxBus ?? master);
   src.start();
 }

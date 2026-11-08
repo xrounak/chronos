@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { ISLAND_A, ISLAND_B, shore, shorePoints } from "@/lib/island";
+import { ISLAND_A, ISLAND_B, shore, shorePoints, wobble } from "@/lib/island";
 
 /**
  * The Chronos island: a long island with one straight track from the start gate to
@@ -28,13 +28,15 @@ export type WorldCallbacks = {
   onGuide: (guide: { day: number; text: string } | null) => void;
   /** Called once if the game keeps running slowly on this device. */
   onSlow?: () => void;
+  /** Driving or on foot, which vehicle, and whether a car is close enough to get in. */
+  onMode?: (s: { mode: "drive" | "walk"; vehicle: "rover" | "supercar"; near: "rover" | "supercar" | null }) => void;
   /** A nitro can was picked up at this point on screen (CSS pixels, viewport); `tank` is the new level. */
   onNitroPickup?: (x: number, y: number, tank: number) => void;
 };
 
 export type WorldHandle = {
   /** Analogue input from the touch joystick, -1..1; `held` while a thumb is on it. */
-  input: { x: number; y: number; boost: boolean; held: boolean };
+  input: { x: number; y: number; boost: boolean; held: boolean; jump: boolean };
   /** Turn the camera by a drag: yaw left/right and a little pitch, in radians. */
   look: (yaw: number, pitch: number) => void;
   start: () => void;
@@ -50,6 +52,16 @@ export type WorldHandle = {
   setLive: (ids: number[]) => void;
   /** Time of day: an hour 0–24, or null to follow the real time in India. */
   setTime: (hour: number | null) => void;
+  /** Run a whole day in this many seconds while playing (null stops the cycle). */
+  setDayCycle: (seconds: number | null) => void;
+  /** The hour the world is showing right now, 0–24. */
+  getHour: () => number;
+  /** Get out of the car, or into the nearest one (the F key). */
+  toggleVehicle: () => void;
+  /** Character colours and car paint ("" for a supercar's own colour). */
+  setLook: (look: Partial<Look>) => void;
+  /** Render resolution: "auto" adapts to the device, the others are fixed. */
+  setQuality: (q: "auto" | "high" | "medium" | "low") => void;
   /** Show or hide the guide arrow over the rover. */
   setArrow: (on: boolean) => void;
   /** Camera distance: 0 close behind the rover, 1 high and far. */
@@ -58,6 +70,8 @@ export type WorldHandle = {
   snapshot: () => string;
   dispose: () => void;
 };
+
+export type Look = { skin: string; hair: string; shirt: string; pants: string; rover: string; supercar: string };
 
 export const DAY_COLORS = ["#f4b536", "#2453b3", "#e2452b"];
 const INK = "#1d1813";
@@ -365,7 +379,12 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !lowPower, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowPower ? 1.25 : 1.75));
   renderer.shadowMap.enabled = !lowPower;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // (PCFSoftShadowMap is gone in this three.js; softness comes from shadow.radius)
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  // Shadows are the single biggest render cost, so they're redrawn on our schedule
+  // (every frame or every other frame, by quality) instead of automatically.
+  renderer.shadowMap.autoUpdate = false;
+  let shadowEvery = 2;
 
   const scene = new THREE.Scene();
   const skyCanvas = document.createElement("canvas");
@@ -944,47 +963,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     };
     const faceTo = (x: number, z: number, tx: number, tz: number) => Math.atan2(tx - x, tz - z);
 
-    // Visitors around each event, looking at it
-    for (const zr of zoneRt) {
-      const px = -Math.sin(zr.a);
-      const pz = Math.cos(zr.a);
-      const ix = -Math.cos(zr.a);
-      const iz = -Math.sin(zr.a);
-      const spots: Array<[number, number]> = [
-        [6.8, 1],
-        [-6.8, 1],
-        [7.4, 4],
-        [-7.6, 3.6],
-      ];
-      for (const [sp, inn] of spots.slice(0, lowPower ? 2 : 4)) {
-        const x = zr.lx + px * sp + ix * inn;
-        const z = zr.lz + pz * sp + iz * inn;
-        person(x, z, faceTo(x, z, zr.lx, zr.lz));
-      }
-    }
-    // A welcome crowd at the start, people along the track, a crowd at the tower
-    for (let i = 0; i < 8; i++) {
-      const side = i % 2 ? 1 : -1;
-      const x = side * (7.5 + (i % 3) * 1.4);
-      const z = START_Z - 2 - Math.floor(i / 2) * 2.6;
-      person(x, z, faceTo(x, z, 0, z - 4));
-    }
-    for (let z = START_Z - 26; z > TOWER_Z + 26; z -= 22) {
-      if (JUNCTION_Z.some((j) => Math.abs(z - j) < 10)) continue;
-      const side = Math.round(z / 22) % 2 ? 1 : -1;
-      for (let k = 0; k < 2; k++) {
-        const x = side * (7 + k * 1.3);
-        const zz = z + k * 1.6;
-        person(x, zz, faceTo(x, zz, 0, zz));
-      }
-    }
-    for (let i = 0; i < 7; i++) {
-      const a = Math.PI * 0.15 + (i / 6) * Math.PI * 0.7;
-      const x = Math.cos(a) * 13;
-      const z = TOWER_Z + Math.sin(a) * 13;
-      person(x, z, faceTo(x, z, 0, TOWER_Z));
-    }
-
+    // (The standing crowds are gone: people now stroll around instead; see "life" below.)
+    void person;
+    void faceTo;
     // Statues on plinths along the track
     const STATUES: Array<{ x: number; z: number; pose: Pose; name: string; stone: string; gear?: boolean }> = [
       { x: -10, z: START_Z - 22, pose: "point", name: "The First Spark", stone: "#b9b2a6" },
@@ -1397,7 +1378,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   }
 
   // ---- gears to collect
-  const gears: Array<{ m: THREE.Mesh; glow: THREE.Sprite; x: number; z: number; taken: boolean }> = [];
+  /** Each can's transform lives on a plain Object3D; all cans draw as one instanced mesh. */
+  const gears: Array<{ m: THREE.Object3D; x: number; z: number; taken: boolean }> = [];
   // A soft golden halo behind every gear, added on top of the scene so it glows.
   const glowTex = (() => {
     const c = document.createElement("canvas");
@@ -1411,7 +1393,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     g.fillRect(0, 0, 128, 128);
     return canvasTex(c, 1);
   })();
-  const glowMat = keepMat(new THREE.SpriteMaterial({ map: glowTex, color: "#ff9a62", transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 }));
+  const glowMat = keepMat(new THREE.PointsMaterial({ map: glowTex, color: "#ff9a62", size: 4.2, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 }));
   // Pickups are nitro cans: red body, cream band, ink cap and nozzle. One merged mesh each.
   const gearMat = keepMat(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: "#5a1206", emissiveIntensity: 0.6, flatShading: true }));
   const canGeo = (() => {
@@ -1443,19 +1425,25 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       if (shore(x, z) > 0.84) continue;
       if (colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 2)) continue;
       if (gears.some((g) => Math.hypot(g.x - x, g.z - z) < 10)) continue;
-      const m = new THREE.Mesh(canGeo, gearMat);
+      const m = new THREE.Object3D();
       m.rotation.z = 0.25;
       m.position.set(x, ground(x, z) + 1.4, z);
-      m.castShadow = !lowPower;
-      scene.add(m);
-      const glow = new THREE.Sprite(glowMat);
-      glow.scale.set(4.2, 4.2, 1);
-      glow.position.copy(m.position);
-      glow.renderOrder = 2;
-      scene.add(glow);
-      gears.push({ m, glow, x, z, taken: false });
+      gears.push({ m, x, z, taken: false });
     }
   }
+  // One draw call for every can, one for every halo
+  const canInst = new THREE.InstancedMesh(canGeo, gearMat, gears.length);
+  canInst.castShadow = !lowPower;
+  canInst.frustumCulled = false;
+  scene.add(canInst);
+  const glowPos = new Float32Array(gears.length * 3);
+  const glowGeo = track(new THREE.BufferGeometry());
+  glowGeo.setAttribute("position", new THREE.BufferAttribute(glowPos, 3));
+  const glowPts = new THREE.Points(glowGeo, glowMat);
+  glowPts.frustumCulled = false;
+  glowPts.renderOrder = 2;
+  scene.add(glowPts);
+  const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
   let collected = 0;
   /** Nitro tank, 0..1: a full tank lasts about 3.5 s of boost. */
   let nitroTank = 1;
@@ -1466,6 +1454,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
 
   // ---- cones you can knock over
   const cones: Array<{ g: THREE.Group; x: number; z: number; vx: number; vz: number; tip: number; tipAxis: THREE.Vector3 }> = [];
+  let coneInst: THREE.InstancedMesh;
+  let bandInst: THREE.InstancedMesh;
   {
     const coneGeo = track(new THREE.ConeGeometry(0.45, 1.2, 8));
     const bandGeo = track(new THREE.CylinderGeometry(0.3, 0.36, 0.16, 8));
@@ -1479,22 +1469,29 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     });
     // A slalom down part of the track
     for (let i = 0; i < 6; i++) spots.push([i % 2 ? 1.8 : -1.8, 105 - i * 4]);
+    coneGeo.translate(0, 0.6, 0);
+    bandGeo.translate(0, 0.6, 0);
+    coneInst = new THREE.InstancedMesh(coneGeo, mat("#ff7a1a"), spots.length);
+    bandInst = new THREE.InstancedMesh(bandGeo, mat(CREAM), spots.length);
+    coneInst.castShadow = !lowPower;
     for (const [x, z] of spots) {
+      // the transform lives on a plain Group; both parts draw instanced
       const g = new THREE.Group();
-      const m = new THREE.Mesh(coneGeo, mat("#ff7a1a"));
-      m.position.y = 0.6;
-      m.castShadow = !lowPower;
-      g.add(m);
-      const band = new THREE.Mesh(bandGeo, mat(CREAM));
-      band.position.y = 0.6;
-      g.add(band);
       g.position.set(x, terrain(x, z), z);
-      scene.add(g);
+      g.updateMatrix();
+      coneInst.setMatrixAt(cones.length, g.matrix);
+      bandInst.setMatrixAt(cones.length, g.matrix);
       cones.push({ g, x, z, vx: 0, vz: 0, tip: 0, tipAxis: new THREE.Vector3(1, 0, 0) });
+    }
+    for (const m of [coneInst, bandInst]) {
+      m.frustumCulled = false;
+      scene.add(m);
     }
   }
 
   // ---- the rover
+  /** The rover's paint (changeable in Customise). */
+  const roverPaint = keepMat(new THREE.MeshLambertMaterial({ color: "#e2452b", flatShading: true }));
   const rover = new THREE.Group();
   const body = new THREE.Group();
   rover.add(body);
@@ -1582,6 +1579,44 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   nitro.visible = false;
   /** 0 = off, 1 = full nitro; eased so the flames and the view widen smoothly. */
   let nitroLevel = 0;
+  // The rover's fixed body panels share one mesh (they never move relative to the body),
+  // so the always-visible rover costs a few draw calls instead of dozens.
+  {
+    const plain = new Set<THREE.Material>(mats.values());
+    const parts: THREE.BufferGeometry[] = [];
+    const paintParts: THREE.BufferGeometry[] = [];
+    const red = mat("#e2452b");
+    const panels = body.children.filter((c) => (c as THREE.Mesh).isMesh && c !== flag && plain.has((c as THREE.Mesh).material as THREE.Material)) as THREE.Mesh[];
+    for (const m of panels) {
+      m.updateMatrix();
+      const g = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()) as THREE.BufferGeometry;
+      for (const name of Object.keys(g.attributes)) if (name !== "position" && name !== "normal") g.deleteAttribute(name);
+      g.applyMatrix4(m.matrix);
+      const c = (m.material as THREE.MeshLambertMaterial).color;
+      const n = g.attributes.position.count;
+      const col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+      g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      // the red bodywork keeps its own material so it can be repainted
+      (m.material === red ? paintParts : parts).push(g);
+      body.remove(m);
+    }
+    if (parts.length) {
+      const merged = new THREE.Mesh(track(mergeGeometries(parts)!), keepMat(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
+      merged.castShadow = !lowPower;
+      merged.receiveShadow = !lowPower;
+      body.add(merged);
+      parts.forEach((g) => g.dispose());
+    }
+    if (paintParts.length) {
+      for (const g of paintParts) g.deleteAttribute("color");
+      const paint = new THREE.Mesh(track(mergeGeometries(paintParts)!), roverPaint);
+      paint.castShadow = !lowPower;
+      paint.receiveShadow = !lowPower;
+      body.add(paint);
+      paintParts.forEach((g) => g.dispose());
+    }
+  }
   scene.add(rover);
 
   // Headlight beams: a soft glowing fan on the ground ahead, only after dark.
@@ -1706,7 +1741,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   const SPAWN = { x: 0, z: START_Z - 6, heading: Math.PI };
   const car = { x: SPAWN.x, z: SPAWN.z, y: 0, vy: 0, heading: SPAWN.heading, speed: 0, air: false, pitch: 0, roll: 0, steer: 0 };
   const keys = new Set<string>();
-  const input = { x: 0, y: 0, boost: false, held: false };
+  const input = { x: 0, y: 0, boost: false, held: false, jump: false };
   /** Where the player has turned the camera, on top of "behind the rover". */
   let lookYaw = 0;
   let lookPitch = 0;
@@ -1730,6 +1765,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     car.y = ground(car.x, car.z);
   }
   respawn();
+  /** Back to the start (replaced once the vehicles exist, to always put you in the rover). */
+  let resetPlayer = respawn;
 
   const onKey = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement | null;
@@ -1738,7 +1775,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code) && started) e.preventDefault();
     if (down) keys.add(e.code);
     else keys.delete(e.code);
-    if (down && e.code === "KeyR") respawn();
+    if (down && e.code === "KeyR") resetPlayer();
+    if (down && e.code === "KeyF" && !e.repeat) toggleVehicle();
   };
   window.addEventListener("keydown", onKey);
   window.addEventListener("keyup", onKey);
@@ -1865,6 +1903,1178 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     mm.restore();
   };
 
+  // ---- life: birds, butterflies, people strolling, boats, balloons, wind turbines.
+  // Everything that moves is one instanced mesh or one merged mesh per thing, updated
+  // with a handful of matrix writes per frame.
+  /** Moving things: kept out of the static batching pass below. */
+  const lifeMovers: THREE.Object3D[] = [];
+  const tint = (g: THREE.BufferGeometry, color: string, m?: THREE.Matrix4) => {
+    const out = (g.index ? g.toNonIndexed() : g.clone()) as THREE.BufferGeometry;
+    if (out.attributes.uv) out.deleteAttribute("uv");
+    if (m) out.applyMatrix4(m);
+    const c = new THREE.Color(color);
+    const n = out.attributes.position.count;
+    const arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) arr.set([c.r, c.g, c.b], i * 3);
+    out.setAttribute("color", new THREE.BufferAttribute(arr, 3));
+    return out;
+  };
+  const at = (x: number, y: number, z: number, ry = 0, s = 1) =>
+    new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry), new THREE.Vector3(s, s, s));
+  const vcMat = keepMat(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  const lr = rng(311);
+  const lm4 = new THREE.Matrix4();
+  const lq = new THREE.Quaternion();
+  const lv = new THREE.Vector3();
+  const ls = new THREE.Vector3();
+  const le = new THREE.Euler();
+  const lmA = new THREE.Matrix4();
+
+  // Blocky creatures: a body plus a left and a right wing, each one instanced mesh, so the
+  // wings really hinge at the shoulders and flap (three draw calls per kind of creature).
+  const lpivot = new THREE.Matrix4();
+  const lwing = new THREE.Matrix4();
+  const wingMats = (base: THREE.Matrix4, px: number, py: number, angle: number, out: THREE.Matrix4) =>
+    out.copy(base).multiply(lpivot.makeTranslation(px, py, 0)).multiply(lwing.makeRotationZ(angle));
+
+  // Birds: three flocks of chunky gulls in a V, circling over the island by day.
+  const birdBodyGeo = track(
+    mergeGeometries([
+      tint(new THREE.BoxGeometry(0.7, 0.6, 1.5), "#fbf7ee", at(0, 0, 0)),
+      tint(new THREE.BoxGeometry(0.56, 0.56, 0.56), "#fbf7ee", at(0, 0.32, 0.86)),
+      tint(new THREE.BoxGeometry(0.2, 0.16, 0.34), "#f4b536", at(0, 0.26, 1.28)),
+      tint(new THREE.BoxGeometry(0.58, 0.1, 0.1), INK, at(0, 0.42, 1.0)),
+      tint(new THREE.BoxGeometry(0.52, 0.12, 0.5), "#9aa3ad", at(0, 0.08, -0.98)),
+    ])!,
+  );
+  const birdWing = (side: number) =>
+    track(
+      mergeGeometries([
+        tint(new THREE.BoxGeometry(1.1, 0.12, 0.8), "#fbf7ee", at(side * 0.55, 0, 0)),
+        tint(new THREE.BoxGeometry(0.6, 0.12, 0.6), "#5d6670", at(side * 1.4, 0, -0.08)),
+      ])!,
+    );
+  const FLOCKS = [
+    { cx: -40, cz: 40, r: 70, h: 26, sp: 0.09 },
+    { cx: 50, cz: -60, r: 55, h: 30, sp: -0.11 },
+    { cx: 0, cz: 120, r: 45, h: 22, sp: 0.13 },
+  ];
+  const PER_FLOCK = lowPower ? 4 : 6;
+  const birdMat = keepMat(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  const birdsBody = new THREE.InstancedMesh(birdBodyGeo, birdMat, FLOCKS.length * PER_FLOCK);
+  const birdsL = new THREE.InstancedMesh(birdWing(-1), birdMat, FLOCKS.length * PER_FLOCK);
+  const birdsR = new THREE.InstancedMesh(birdWing(1), birdMat, FLOCKS.length * PER_FLOCK);
+  const birds = new THREE.Group();
+  for (const m of [birdsBody, birdsL, birdsR]) {
+    m.frustumCulled = false;
+    birds.add(m);
+  }
+  scene.add(birds);
+  lifeMovers.push(birds);
+
+  // Butterflies: bright two-panel wings that fold and open, around the rover by day
+  // (fireflies take over at night).
+  const BUTTERFLIES = lowPower ? 10 : 20;
+  const flyWing = (side: number) =>
+    track(
+      mergeGeometries([
+        tint(new THREE.BoxGeometry(0.46, 0.04, 0.4), "#ffffff", at(side * 0.25, 0, 0.1)),
+        tint(new THREE.BoxGeometry(0.34, 0.04, 0.3), "#ffffff", at(side * 0.2, 0, -0.22)),
+        tint(new THREE.BoxGeometry(0.12, 0.05, 0.12), INK, at(side * 0.4, 0.01, 0.2)),
+      ])!,
+    );
+  const flyMat = keepMat(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  const fliesBody = new THREE.InstancedMesh(track(tint(new THREE.BoxGeometry(0.1, 0.1, 0.5), INK)), flyMat, BUTTERFLIES);
+  const fliesL = new THREE.InstancedMesh(flyWing(-1), flyMat, BUTTERFLIES);
+  const fliesR = new THREE.InstancedMesh(flyWing(1), flyMat, BUTTERFLIES);
+  const flies = new THREE.Group();
+  const FLY_TONES = ["#f4b536", "#f08aa0", "#7fa8ff", "#ff9a62", "#ffffff"];
+  const flyData = Array.from({ length: BUTTERFLIES }, (_, i) => {
+    const c = new THREE.Color(FLY_TONES[i % FLY_TONES.length]);
+    fliesL.setColorAt(i, c);
+    fliesR.setColorAt(i, c);
+    fliesBody.setColorAt(i, new THREE.Color("#ffffff"));
+    return { ox: (lr() - 0.5) * 50, oz: (lr() - 0.5) * 50, ph: lr() * 10, sp: 0.6 + lr() * 0.6 };
+  });
+  for (const m of [fliesBody, fliesL, fliesR]) {
+    m.frustumCulled = false;
+    flies.add(m);
+  }
+  scene.add(flies);
+  lifeMovers.push(flies);
+
+  // Sailboats circling just offshore.
+  const boatGeo = track(
+    mergeGeometries([
+      tint(new THREE.BoxGeometry(1.6, 0.6, 4), "#e2452b", at(0, 0.3, 0)),
+      tint(new THREE.BoxGeometry(1.7, 0.15, 4.1), INK, at(0, 0.62, 0)),
+      tint(new THREE.CylinderGeometry(0.08, 0.08, 4.2, 5), "#7a5233", at(0, 2.7, 0.2)),
+      tint(
+        (() => {
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute([0, 4.6, 0.25, 0, 0.9, 0.25, 0, 0.9, -1.9, 0, 4.6, 0.25, 0, 0.9, -1.9, 0, 0.9, 0.25], 3));
+          g.computeVertexNormals();
+          return g;
+        })(),
+        CREAM,
+      ),
+    ])!,
+  );
+  const boatMat = keepMat(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide }));
+  const boats = [0.4, 2.5, 4.4].map((a, i) => {
+    const m = new THREE.Mesh(boatGeo, boatMat);
+    m.scale.setScalar(1.3);
+    scene.add(m);
+    lifeMovers.push(m);
+    return { m, a, sp: (i % 2 ? -1 : 1) * (0.012 + i * 0.004), k: 1.1 + i * 0.03 };
+  });
+
+  // Hot-air balloons in festival colours drifting high over the island.
+  const balloonGeo = (() => {
+    const env = new THREE.IcosahedronGeometry(3.4, 1).toNonIndexed();
+    env.scale(1, 1.15, 1);
+    const pal = ["#e2452b", "#f4b536", CREAM, "#2453b3"].map((c) => new THREE.Color(c));
+    const n = env.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let f = 0; f < n / 3; f++) {
+      // stripes by the angle round the envelope
+      const x = env.attributes.position.getX(f * 3);
+      const z = env.attributes.position.getZ(f * 3);
+      const c = pal[Math.floor(((Math.atan2(z, x) + Math.PI) / (Math.PI * 2)) * 8) % pal.length];
+      for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (f * 3 + k) * 3);
+    }
+    env.deleteAttribute("uv");
+    env.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    env.translate(0, 5, 0);
+    return track(mergeGeometries([env, tint(new THREE.BoxGeometry(1.2, 0.9, 1.2), "#7a5233", at(0, 0, 0)), tint(new THREE.CylinderGeometry(1.2, 0.6, 1.6, 8, 1, true), INK, at(0, 1.4, 0))])!);
+  })();
+  const balloons = [
+    { cx: -60, cz: -20, r: 40, h: 52, sp: 0.02, ph: 0 },
+    { cx: 60, cz: 70, r: 50, h: 60, sp: -0.016, ph: 2 },
+  ].map((b) => {
+    const m = new THREE.Mesh(balloonGeo, vcMat);
+    scene.add(m);
+    lifeMovers.push(m);
+    return { ...b, m };
+  });
+
+  // Wind turbines on the hills: static towers (batched below) and spinning rotors.
+  const rotorGeo = (() => {
+    const blade = new THREE.BoxGeometry(0.5, 6, 0.15);
+    blade.translate(0, 3, 0);
+    const parts = [0, 1, 2].map((i) => tint(blade, CREAM, new THREE.Matrix4().makeRotationZ((i * Math.PI * 2) / 3)));
+    parts.push(tint(new THREE.CylinderGeometry(0.45, 0.45, 0.6, 8), "#e2452b", new THREE.Matrix4().makeRotationX(Math.PI / 2)));
+    return track(mergeGeometries(parts)!);
+  })();
+  const rotors: THREE.Mesh[] = [];
+  {
+    let placed = 0;
+    for (let tries = 0; placed < 3 && tries < 400; tries++) {
+      const a = lr() * Math.PI * 2;
+      const x = Math.cos(a) * ISLAND_A * 0.72;
+      const z = Math.sin(a) * ISLAND_B * 0.72;
+      if (shore(x, z) > 0.84 || openness(x, z) < 8 || !freeSpot(x, z, 3)) continue;
+      if (rotors.some((r) => Math.hypot(r.position.x - x, r.position.z - z) < 60)) continue;
+      const y = terrain(x, z);
+      const tower = mesh(new THREE.CylinderGeometry(0.35, 0.6, 14, 8), CREAM, scene, x, y + 7, z);
+      tower.castShadow = !lowPower;
+      const rotor = new THREE.Mesh(rotorGeo, vcMat);
+      rotor.position.set(x, y + 14, z + 0.7);
+      rotor.lookAt(0, y + 14, 0);
+      rotor.rotateY(Math.PI);
+      scene.add(rotor);
+      lifeMovers.push(rotor);
+      rotors.push(rotor);
+      colliders.push({ x, z, r: 1 });
+      placed++;
+    }
+  }
+
+  // ---- more map: market stalls round each plaza and benches along the track (static)
+  {
+    const stripes = ["#e2452b", "#2453b3", "#1f9c86", "#f08aa0", "#f4b536"];
+    CENTERS.forEach((c, d) => {
+      for (let k = 0; k < 4; k++) {
+        // round the far side of the plaza, away from the road in
+        const a = DISTRICT_ANGLES[d] + (k - 1.5) * 0.42;
+        const x = c.x + Math.cos(a) * (PLAZA + 2.5);
+        const z = c.y + Math.sin(a) * (PLAZA + 2.5);
+        if (!freeSpot(x, z, 1.5) || shore(x, z) > 0.84) continue;
+        const g = new THREE.Group();
+        g.position.set(x, terrain(x, z), z);
+        g.rotation.y = -a + Math.PI / 2;
+        scene.add(g);
+        const roof = stripes[(d * 4 + k) % stripes.length];
+        box(2.6, 1.1, 1.6, "#c4a676", g, 0, 0, 0.5);
+        box(2.8, 0.12, 1.8, roof, g, 0, 1.1, 0.5);
+        [-1.25, 1.25].forEach((px) => box(0.12, 2.3, 0.12, INK, g, px, 0, -0.35));
+        const top = mesh(new THREE.ConeGeometry(2.1, 1.1, 4), roof, g, 0, 2.85, 0);
+        top.rotation.y = Math.PI / 4;
+        top.scale.set(1, 1, 0.75);
+        box(2.9, 0.18, 0.08, CREAM, g, 0, 2.25, -0.95);
+        colliders.push({ x, z, r: 1.8 });
+      }
+    });
+    for (let z = START_Z - 28; z > TOWER_Z + 28; z -= 32) {
+      [-1, 1].forEach((side) => {
+        const zz = z + (side > 0 ? 0 : 8) + 4;
+        if (JUNCTION_Z.some((j) => Math.abs(zz - j) < 9)) return;
+        const x = side * 6.6;
+        const g = new THREE.Group();
+        g.position.set(x, terrain(x, zz), zz);
+        g.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+        scene.add(g);
+        box(1.8, 0.12, 0.55, "#b5763a", g, 0, 0.5, 0);
+        box(1.8, 0.45, 0.1, "#b5763a", g, 0, 0.62, -0.25);
+        [-0.75, 0.75].forEach((px) => box(0.1, 0.5, 0.45, INK, g, px, 0, 0));
+        colliders.push({ x, z: zz, r: 0.9 });
+      });
+    }
+  }
+
+  // ---- blocky countryside: voxel oaks, fenced pastures with grazing animals, plank
+  // cottages with hay bales. Static parts are plain boxes (merged by the batching pass);
+  // each kind of animal is one instanced mesh.
+  {
+    // Voxel oaks: a trunk column and a stack of leaf cubes, one instanced mesh.
+    const oakGeo = mergeGeometries([
+      tint(new THREE.BoxGeometry(0.9, 3.2, 0.9), "#7a5233", at(0, 1.6, 0)),
+      tint(new THREE.BoxGeometry(4.2, 1.6, 4.2), "#3f9a3e", at(0, 3.8, 0)),
+      tint(new THREE.BoxGeometry(3, 1.4, 3), "#4fae47", at(0, 5.2, 0)),
+      tint(new THREE.BoxGeometry(1.6, 1.1, 1.6), "#5cbd52", at(0.3, 6.3, -0.2)),
+      tint(new THREE.BoxGeometry(1.4, 1, 1.4), "#3f9a3e", at(-2.2, 3.6, 0.8)),
+      tint(new THREE.BoxGeometry(1.2, 0.9, 1.2), "#4fae47", at(1.9, 4.4, -1.6)),
+    ])!;
+    const OAKS = lowPower ? 40 : 80;
+    const oaks = new THREE.InstancedMesh(track(oakGeo), vcMat, OAKS);
+    let n = 0;
+    for (let tries = 0; n < OAKS && tries < OAKS * 30; tries++) {
+      const x = (lr() * 2 - 1) * ISLAND_A;
+      const z = (lr() * 2 - 1) * ISLAND_B;
+      if (shore(x, z) > 0.84 || openness(x, z) < 4 || !freeSpot(x, z, 2.5)) continue;
+      const k = 0.8 + lr() * 0.5;
+      oaks.setMatrixAt(n++, at(x, terrain(x, z) - 0.1, z, Math.floor(lr() * 4) * (Math.PI / 2), k));
+      colliders.push({ x, z, r: 0.8 * k });
+    }
+    oaks.count = n;
+    oaks.castShadow = !lowPower;
+    oaks.receiveShadow = !lowPower;
+    scene.add(oaks);
+  }
+
+  // Animals: woolly sheep, patched cows and little chickens, each kind one instanced mesh.
+  const leg = (x: number, z: number, h: number, w: number, color: string) => tint(new THREE.BoxGeometry(w, h, w), color, at(x, h / 2, z));
+  const sheepGeo = mergeGeometries([
+    tint(new THREE.BoxGeometry(1.3, 1, 1.8), "#f3efe6", at(0, 1.15, 0)),
+    tint(new THREE.BoxGeometry(0.7, 0.7, 0.6), "#6b5a4a", at(0, 1.45, 1.1)),
+    tint(new THREE.BoxGeometry(0.72, 0.3, 0.3), "#f3efe6", at(0, 1.85, 0.95)),
+    leg(-0.42, 0.6, 0.7, 0.3, "#6b5a4a"),
+    leg(0.42, 0.6, 0.7, 0.3, "#6b5a4a"),
+    leg(-0.42, -0.6, 0.7, 0.3, "#6b5a4a"),
+    leg(0.42, -0.6, 0.7, 0.3, "#6b5a4a"),
+  ])!;
+  const cowGeo = mergeGeometries([
+    tint(new THREE.BoxGeometry(1.5, 1.2, 2.4), "#f6f1e6", at(0, 1.55, 0)),
+    tint(new THREE.BoxGeometry(1.52, 0.9, 0.9), "#3b2b22", at(0, 1.7, -0.5)),
+    tint(new THREE.BoxGeometry(1.0, 0.7, 0.8), "#3b2b22", at(0.26, 1.4, 0.75)),
+    tint(new THREE.BoxGeometry(0.9, 0.9, 0.8), "#f6f1e6", at(0, 1.9, 1.5)),
+    tint(new THREE.BoxGeometry(0.7, 0.36, 0.2), "#f0a8a0", at(0, 1.65, 1.95)),
+    tint(new THREE.BoxGeometry(1.2, 0.16, 0.16), "#e8dcc0", at(0, 2.42, 1.45)),
+    leg(-0.5, 0.85, 0.95, 0.36, "#3b2b22"),
+    leg(0.5, 0.85, 0.95, 0.36, "#3b2b22"),
+    leg(-0.5, -0.85, 0.95, 0.36, "#f6f1e6"),
+    leg(0.5, -0.85, 0.95, 0.36, "#3b2b22"),
+  ])!;
+  const chickenGeo = mergeGeometries([
+    tint(new THREE.BoxGeometry(0.5, 0.5, 0.6), "#ffffff", at(0, 0.6, 0)),
+    tint(new THREE.BoxGeometry(0.36, 0.42, 0.32), "#ffffff", at(0, 0.98, 0.26)),
+    tint(new THREE.BoxGeometry(0.14, 0.14, 0.2), "#f4b536", at(0, 0.95, 0.5)),
+    tint(new THREE.BoxGeometry(0.1, 0.18, 0.2), "#e2452b", at(0, 1.24, 0.28)),
+    tint(new THREE.BoxGeometry(0.1, 0.12, 0.1), "#e2452b", at(0, 0.82, 0.47)),
+    tint(new THREE.BoxGeometry(0.12, 0.3, 0.3), "#ece8de", at(-0.3, 0.62, -0.02)),
+    tint(new THREE.BoxGeometry(0.12, 0.3, 0.3), "#ece8de", at(0.3, 0.62, -0.02)),
+    leg(-0.12, 0, 0.36, 0.08, "#f4b536"),
+    leg(0.12, 0, 0.36, 0.08, "#f4b536"),
+  ])!;
+  type Animal = { kind: number; slot: number; pen: number; x: number; z: number; tx: number; tz: number; face: number; wait: number; speed: number; scared: number };
+  const KINDS = [
+    { geo: sheepGeo, speed: 0.9 },
+    { geo: cowGeo, speed: 0.7 },
+    { geo: chickenGeo, speed: 1.6 },
+  ];
+  const pens: Array<{ x: number; z: number; w: number; d: number }> = [];
+  const animals: Animal[] = [];
+  const herds: THREE.InstancedMesh[] = [];
+  {
+    // Find open, gentle ground for three pastures, well apart
+    for (let tries = 0; pens.length < 3 && tries < 600; tries++) {
+      const x = (lr() * 2 - 1) * ISLAND_A * 0.75;
+      const z = (lr() * 2 - 1) * ISLAND_B * 0.75;
+      const w = 16;
+      const d = 12;
+      if (shore(x, z) > 0.78 || openness(x, z) < 16) continue;
+      let ok = true;
+      for (const [cx, cz] of [
+        [x - w / 2, z - d / 2],
+        [x + w / 2, z - d / 2],
+        [x - w / 2, z + d / 2],
+        [x + w / 2, z + d / 2],
+      ])
+        if (openness(cx, cz) < 4 || !freeSpot(cx, cz, 2)) ok = false;
+      if (!ok || !freeSpot(x, z, 9)) continue;
+      if (pens.some((p) => Math.hypot(p.x - x, p.z - z) < 70)) continue;
+      pens.push({ x, z, w, d });
+    }
+    // Fences: posts every 2 m (the rover bumps into them), with two rails between
+    pens.forEach((p) => {
+      const posts: Array<[number, number]> = [];
+      for (let u = -p.w / 2; u <= p.w / 2 + 0.01; u += 2) posts.push([p.x + u, p.z - p.d / 2], [p.x + u, p.z + p.d / 2]);
+      for (let v = -p.d / 2 + 2; v <= p.d / 2 - 1.99; v += 2) {
+        posts.push([p.x - p.w / 2, p.z + v]);
+        // leave a gate gap on one side
+        if (Math.abs(v) > 1.5) posts.push([p.x + p.w / 2, p.z + v]);
+      }
+      for (const [x, z] of posts) {
+        box(0.28, 1.4, 0.28, "#8a5a32", scene, x, terrain(x, z) - 0.1, z);
+        colliders.push({ x, z, r: 0.3 });
+      }
+      const rail = (x1: number, z1: number, x2: number, z2: number) => {
+        const len = Math.hypot(x2 - x1, z2 - z1);
+        const mx = (x1 + x2) / 2;
+        const mz = (z1 + z2) / 2;
+        for (const y of [0.55, 1.05]) {
+          const r = mesh(new THREE.BoxGeometry(0.12, 0.14, len), "#b5763a", scene, mx, terrain(mx, mz) + y, mz);
+          r.rotation.y = Math.atan2(x2 - x1, z2 - z1);
+        }
+      };
+      rail(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z - p.d / 2);
+      rail(p.x - p.w / 2, p.z + p.d / 2, p.x + p.w / 2, p.z + p.d / 2);
+      rail(p.x - p.w / 2, p.z - p.d / 2, p.x - p.w / 2, p.z + p.d / 2);
+      rail(p.x + p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z - 1.5);
+      rail(p.x + p.w / 2, p.z + 1.5, p.x + p.w / 2, p.z + p.d / 2);
+      // a water trough
+      box(2.4, 0.6, 0.9, "#8a5a32", scene, p.x - p.w / 2 + 2.2, terrain(p.x - p.w / 2 + 2.2, p.z) - 0.05, p.z);
+      box(2.1, 0.08, 0.6, "#4aa8d8", scene, p.x - p.w / 2 + 2.2, terrain(p.x - p.w / 2 + 2.2, p.z) + 0.5, p.z);
+    });
+    // Each pasture: a mix, mostly one kind
+    pens.forEach((p, pi) => {
+      const mix = [
+        [0, 0, 0, 0, 2, 2],
+        [1, 1, 1, 0, 2],
+        [2, 2, 2, 2, 0, 1],
+      ][pi % 3];
+      for (const kind of mix) {
+        const x = p.x + (lr() - 0.5) * (p.w - 4);
+        const z = p.z + (lr() - 0.5) * (p.d - 4);
+        const slot = animals.filter((a) => a.kind === kind).length;
+        animals.push({ kind, slot, pen: pi, x, z, tx: x, tz: z, face: lr() * 6, wait: lr() * 4, speed: KINDS[kind].speed, scared: 0 });
+      }
+    });
+    KINDS.forEach((k, ki) => {
+      const count = Math.max(1, animals.filter((a) => a.kind === ki).length);
+      const m = new THREE.InstancedMesh(track(k.geo), vcMat, count);
+      m.count = animals.filter((a) => a.kind === ki).length;
+      m.castShadow = !lowPower;
+      m.frustumCulled = false;
+      scene.add(m);
+      lifeMovers.push(m);
+      herds.push(m);
+    });
+  }
+
+  // Plank cottages with a stepped roof, a lit window and hay bales, near each district.
+  {
+    const ROOF = ["#a3442d", "#2f5d8a", "#5b7f3a"];
+    CENTERS.forEach((c, d) => {
+      for (let k = 0; k < 2; k++) {
+        const a = DISTRICT_ANGLES[d] + (k ? 1.15 : -1.15);
+        const x = c.x + Math.cos(a) * (PLAZA + 12);
+        const z = c.y + Math.sin(a) * (PLAZA + 12);
+        if (!freeSpot(x, z, 5) || shore(x, z) > 0.82) continue;
+        const g = new THREE.Group();
+        g.position.set(x, terrain(x, z) - 0.2, z);
+        // front door faces the plaza
+        g.rotation.y = Math.atan2(c.x - x, c.y - z);
+        scene.add(g);
+        box(6.4, 0.5, 5.4, "#8d8a84", g, 0, 0, 0); // stone footing
+        box(6, 3.2, 5, "#b5763a", g, 0, 0.5, 0); // plank walls
+        [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => box(0.5, 3.3, 0.5, "#6b4423", g, sx * 2.85, 0.5, sz * 2.35)));
+        box(1.1, 2, 0.12, "#5a3a1c", g, 0, 0.5, 2.52); // door
+        [-1.8, 1.8].forEach((wx) => box(0.9, 0.9, 0.12, "#bfe3ef", g, wx, 1.9, 2.52)); // windows
+        const roof = ROOF[(d + k) % ROOF.length];
+        for (let i = 0; i < 4; i++) box(6.6 - i * 1.5, 0.55, 5.6, roof, g, 0, 3.7 + i * 0.55, 0);
+        box(0.8, 1.8, 0.8, "#8d8a84", g, 1.8, 4.6, -1.2); // chimney
+        // hay bales by the side wall
+        box(1.2, 1.2, 1.2, "#d9b24a", g, 3.9, 0.2, 0.6);
+        box(1.2, 1.2, 1.2, "#d9b24a", g, 3.9, 0.2, -0.8);
+        box(1.2, 1.1, 1.2, "#e2bf55", g, 3.9, 1.4, -0.1);
+        colliders.push({ x, z, r: 4.2 });
+      }
+    });
+  }
+
+  // ---- people: one blocky body plan shared by the player (on foot) and the strollers.
+  // Limbs hang from hip and shoulder pivots so they can swing; strollers are instanced
+  // (one draw call per body part for all of them).
+  const limbGeo = {
+    leg: (() => {
+      const g = new THREE.BoxGeometry(0.24, 0.82, 0.28);
+      g.translate(0, -0.41, 0);
+      return track(g);
+    })(),
+    arm: (() => {
+      const g = new THREE.BoxGeometry(0.19, 0.72, 0.22);
+      g.translate(0, -0.34, 0);
+      return track(g);
+    })(),
+    torso: (() => {
+      const g = new THREE.BoxGeometry(0.6, 0.74, 0.34);
+      g.translate(0, 1.2, 0);
+      return track(g);
+    })(),
+    head: (() => {
+      const g = new THREE.BoxGeometry(0.46, 0.46, 0.46);
+      g.translate(0, 1.82, 0);
+      return track(g);
+    })(),
+    hair: track(
+      mergeGeometries([
+        new THREE.BoxGeometry(0.5, 0.15, 0.5).translate(0, 2.08, 0),
+        new THREE.BoxGeometry(0.5, 0.3, 0.12).translate(0, 1.93, -0.21),
+      ])!,
+    ),
+  };
+  const HIP = { x: 0.14, y: 0.84 };
+  const SHOULDER = { x: 0.4, y: 1.52 };
+
+  // The player's character
+  const look = { skin: "#d9a066", hair: "#3b2414", shirt: "#e2452b", pants: "#2c3a5a", rover: "#e2452b", supercar: "" };
+  const skinMat = keepMat(new THREE.MeshLambertMaterial({ color: look.skin, flatShading: true }));
+  const hairMat = keepMat(new THREE.MeshLambertMaterial({ color: look.hair, flatShading: true }));
+  const shirtMat = keepMat(new THREE.MeshLambertMaterial({ color: look.shirt, flatShading: true }));
+  const pantsMat = keepMat(new THREE.MeshLambertMaterial({ color: look.pants, flatShading: true }));
+  const player = new THREE.Group();
+  const limb = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, y, 0);
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.castShadow = !lowPower;
+    pivot.add(mesh);
+    player.add(pivot);
+    return pivot;
+  };
+  const pLegL = limb(limbGeo.leg, pantsMat, -HIP.x, HIP.y);
+  const pLegR = limb(limbGeo.leg, pantsMat, HIP.x, HIP.y);
+  const pArmL = limb(limbGeo.arm, skinMat, -SHOULDER.x, SHOULDER.y);
+  const pArmR = limb(limbGeo.arm, skinMat, SHOULDER.x, SHOULDER.y);
+  for (const [g, m] of [
+    [limbGeo.torso, shirtMat],
+    [limbGeo.head, skinMat],
+    [limbGeo.hair, hairMat],
+  ] as const) {
+    const mesh = new THREE.Mesh(g, m);
+    mesh.castShadow = !lowPower;
+    player.add(mesh);
+  }
+  // short sleeves in the shirt colour
+  for (const side of [-1, 1]) {
+    const sleeve = new THREE.Mesh(track(new THREE.BoxGeometry(0.23, 0.26, 0.26).translate(0, -0.1, 0)), shirtMat);
+    (side < 0 ? pArmL : pArmR).add(sleeve);
+  }
+  player.visible = false;
+  scene.add(player);
+  lifeMovers.push(player);
+  let walkPhase = 0;
+
+  // Strollers: wander between busy spots, pause and look around, wave at you, keep
+  // their distance from each other and hurry out of the rover's way.
+  const STROLLERS = lowPower ? 8 : 16;
+  const sMat = keepMat(new THREE.MeshLambertMaterial({ color: "#ffffff", flatShading: true }));
+  const sPart = (geo: THREE.BufferGeometry, cast: boolean) => {
+    const m = new THREE.InstancedMesh(geo, sMat, STROLLERS);
+    m.castShadow = cast && !lowPower;
+    m.frustumCulled = false;
+    scene.add(m);
+    lifeMovers.push(m);
+    return m;
+  };
+  const sTorso = sPart(limbGeo.torso, true);
+  const sHead = sPart(limbGeo.head, false);
+  const sHair = sPart(limbGeo.hair, false);
+  const sLegL = sPart(limbGeo.leg, true);
+  const sLegR = sPart(limbGeo.leg, true);
+  const sArmL = sPart(limbGeo.arm, false);
+  const sArmR = sPart(limbGeo.arm, false);
+  type Stroller = { x: number; z: number; h: number; speed: number; base: number; tx: number; tz: number; state: "walk" | "idle"; timer: number; phase: number; wave: number; flee: number; stuck: number; lastD: number; ax: number; az: number };
+  const strollers: Stroller[] = [];
+  {
+    const SKINS = ["#f1c9a5", "#d9a066", "#b07a48", "#7a4a26"];
+    const HAIRS = [INK, "#3b2414", "#6b3e1f", "#c9a24a", "#8a8a8a"];
+    const SHIRTS = ["#e2452b", "#2453b3", "#f4b536", "#1f9c86", "#f08aa0", CREAM, "#6a4c93", "#ff8a3a"];
+    const PANTS = [INK, "#3b4a6b", "#6b4a2b", "#4a4a4a", "#2c3a5a"];
+    const c = new THREE.Color();
+    for (let i = 0; i < STROLLERS; i++) {
+      const skin = SKINS[Math.floor(lr() * SKINS.length)];
+      sHead.setColorAt(i, c.set(skin));
+      sArmL.setColorAt(i, c.set(skin));
+      sArmR.setColorAt(i, c.set(skin));
+      sHair.setColorAt(i, c.set(HAIRS[Math.floor(lr() * HAIRS.length)]));
+      sTorso.setColorAt(i, c.set(SHIRTS[i % SHIRTS.length]));
+      const pants = PANTS[Math.floor(lr() * PANTS.length)];
+      sLegL.setColorAt(i, c.set(pants));
+      sLegR.setColorAt(i, c.set(pants));
+      // start along the track, spread out
+      const x = (i % 2 ? 1 : -1) * (4.8 + lr() * 1.5);
+      const z = START_Z - 20 - i * ((START_Z - TOWER_Z - 50) / STROLLERS);
+      const base = 1.0 + lr() * 0.55;
+      strollers.push({ x, z, h: lr() * 6, speed: base, base, tx: x, tz: z, state: "idle", timer: lr() * 3, phase: lr() * 6, wave: 0, flee: 0, stuck: 0, lastD: 0, ax: 0, az: 0 });
+    }
+  }
+  /** Busy spots people walk between (built on first use, once everything is placed). */
+  let hangouts: Array<[number, number]> | null = null;
+  const buildHangouts = () => {
+    const out: Array<[number, number]> = [];
+    const add = (x: number, z: number) => {
+      if (shore(x, z) < 0.86 && freeSpot(x, z, 0.8) && !colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 0.8)) out.push([x, z]);
+    };
+    for (let z = START_Z - 18; z > TOWER_Z + 24; z -= 16) {
+      add(-4.7, z);
+      add(4.7, z + 8);
+    }
+    CENTERS.forEach((c) => {
+      for (let k = 0; k < 10; k++) {
+        const a = (k / 10) * Math.PI * 2;
+        add(c.x + Math.cos(a) * (PLAZA - 4), c.y + Math.sin(a) * (PLAZA - 4));
+      }
+    });
+    for (let k = 0; k < 6; k++) {
+      const a = Math.PI * 0.1 + (k / 5) * Math.PI * 0.8;
+      add(Math.cos(a) * 15, TOWER_Z + Math.sin(a) * 15);
+    }
+    for (const p of pens) {
+      add(p.x - p.w / 2 - 2, p.z);
+      add(p.x, p.z + p.d / 2 + 2);
+    }
+    for (let k = 0; k < 6; k++) add(-12 + k * 4.8, START_Z - 6);
+    return out;
+  };
+  const pickTarget = (s: Stroller) => {
+    if (!hangouts || !hangouts.length) return;
+    // prefer somewhere fairly close, like real wandering
+    for (let tries = 0; tries < 8; tries++) {
+      const [x, z] = hangouts[Math.floor(Math.random() * hangouts.length)];
+      const d = Math.hypot(x - s.x, z - s.z);
+      if (d > 4 && (d < 60 || tries === 7)) {
+        s.tx = x + (Math.random() - 0.5) * 2;
+        s.tz = z + (Math.random() - 0.5) * 2;
+        return;
+      }
+    }
+  };
+  const turnTo = (from: number, to: number, rate: number) => {
+    let d = to - from;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    return from + d * Math.min(1, rate);
+  };
+  function animateStrollers(t: number, dt: number) {
+    if (!hangouts) hangouts = buildHangouts();
+    const carFast = mode === "drive" && Math.abs(car.speed) > 2.5;
+    for (let i = 0; i < strollers.length; i++) {
+      const s = strollers[i];
+      // keep a little personal space from each other and from the player
+      let px = 0;
+      let pz = 0;
+      for (let j = 0; j < strollers.length; j++) {
+        if (j === i) continue;
+        const o = strollers[j];
+        const dx = s.x - o.x;
+        const dz = s.z - o.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < 1.6 && d2 > 0.0001) {
+          const d = Math.sqrt(d2);
+          px += (dx / d) * (1.3 - d);
+          pz += (dz / d) * (1.3 - d);
+        }
+      }
+      const cdx = s.x - car.x;
+      const cdz = s.z - car.z;
+      const cd = Math.hypot(cdx, cdz);
+      // the rover coming at them: get out of the way, fast
+      if (carFast && cd < 7) {
+        const ahead = (cdx * Math.sin(car.heading) + cdz * Math.cos(car.heading)) / (cd || 1);
+        if (ahead > 0.2 || cd < 3.5) {
+          s.flee = 1.2;
+          s.state = "walk";
+          const side = -cdx * Math.cos(car.heading) + cdz * Math.sin(car.heading) > 0 ? 1 : -1;
+          s.tx = s.x + Math.cos(car.heading) * side * -4 + (cdx / (cd || 1)) * 2;
+          s.tz = s.z - Math.sin(car.heading) * side * -4 + (cdz / (cd || 1)) * 2;
+        }
+      } else if (cd < 1.4) {
+        px += (cdx / (cd || 1)) * 1.2;
+        pz += (cdz / (cd || 1)) * 1.2;
+      }
+      s.flee = Math.max(0, s.flee - dt);
+
+      let moving = false;
+      if (s.state === "walk") {
+        const dx = s.tx - s.x;
+        const dz = s.tz - s.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 0.7) {
+          s.state = "idle";
+          s.timer = 2 + Math.random() * 6;
+        } else {
+          let sx = dx / d + px * 1.6;
+          let sz = dz / d + pz * 1.6;
+          // feel ahead for trees, posts and stalls and steer round them (each person checks
+          // every third frame, staggered, and keeps the last answer in between)
+          if ((frame + i) % 3 === 0) {
+            s.ax = 0;
+            s.az = 0;
+            const lx = s.x + Math.sin(s.h) * 1.3;
+            const lz = s.z + Math.cos(s.h) * 1.3;
+            for (const c of colliders) {
+              const ox = lx - c.x;
+              const oz = lz - c.z;
+              const r = c.r + 0.45;
+              if (Math.abs(ox) > r || Math.abs(oz) > r) continue;
+              if (ox * ox + oz * oz < r * r) {
+                const cross = Math.sin(s.h) * (c.z - s.z) - Math.cos(s.h) * (c.x - s.x);
+                const side = cross > 0 ? 1 : -1;
+                s.ax = Math.cos(s.h) * side * 1.8;
+                s.az = -Math.sin(s.h) * side * 1.8;
+                break;
+              }
+            }
+          }
+          sx += s.ax;
+          sz += s.az;
+          s.h = turnTo(s.h, Math.atan2(sx, sz), dt * (s.flee > 0 ? 9 : 3.5));
+          const want = s.base * (s.flee > 0 ? 2.6 : 1);
+          s.speed += (want - s.speed) * Math.min(1, dt * 4);
+          s.x += Math.sin(s.h) * s.speed * dt;
+          s.z += Math.cos(s.h) * s.speed * dt;
+          moving = true;
+          // give up on a spot they can't reach
+          s.stuck = Math.abs(s.lastD - d) < s.speed * dt * 0.2 ? s.stuck + dt : 0;
+          s.lastD = d;
+          if (s.stuck > 2.5) {
+            s.stuck = 0;
+            pickTarget(s);
+          }
+        }
+      } else {
+        s.x += px * dt;
+        s.z += pz * dt;
+        s.timer -= dt;
+        s.speed = 0;
+        // someone nearby on foot or a slow rover: turn and wave
+        const near = cd < 9 && !carFast;
+        if (near) {
+          s.h = turnTo(s.h, Math.atan2(car.x - s.x, car.z - s.z), dt * 3);
+          s.wave = Math.min(1, s.wave + dt * 3);
+        } else {
+          s.wave = Math.max(0, s.wave - dt * 2);
+          // glance around
+          s.h += Math.sin(t * 0.7 + i * 1.7) * 0.35 * dt;
+        }
+        if (s.timer <= 0) {
+          s.state = "walk";
+          s.wave = 0;
+          pickTarget(s);
+        }
+      }
+
+      // pose: swing legs and arms with the stride, a little bob, wave if waving
+      s.phase += (moving ? s.speed * 3.4 : 0) * dt;
+      const swing = moving ? Math.sin(s.phase) * Math.min(0.75, 0.35 + s.speed * 0.15) : 0;
+      const bob = moving ? Math.abs(Math.sin(s.phase)) * 0.06 : Math.sin(t * 2 + i) * 0.01;
+      lv.set(s.x, terrain(s.x, s.z) + bob, s.z);
+      lq.setFromEuler(le.set(moving && s.flee > 0 ? 0.15 : 0, s.h, 0, "YXZ"));
+      ls.set(1, 1, 1);
+      lm4.compose(lv, lq, ls);
+      sTorso.setMatrixAt(i, lm4);
+      sHead.setMatrixAt(i, lm4);
+      sHair.setMatrixAt(i, lm4);
+      sLegL.setMatrixAt(i, limbMat(lm4, -HIP.x, HIP.y, swing, 0));
+      sLegR.setMatrixAt(i, limbMat(lm4, HIP.x, HIP.y, -swing, 0));
+      sArmL.setMatrixAt(i, limbMat(lm4, -SHOULDER.x, SHOULDER.y, -swing * 0.8, 0));
+      const waveZ = s.wave > 0 ? s.wave * (2.5 + Math.sin(t * 9 + i) * 0.35) : 0;
+      sArmR.setMatrixAt(i, limbMat(lm4, SHOULDER.x, SHOULDER.y, s.wave > 0 ? 0 : swing * 0.8, waveZ));
+    }
+    for (const m of [sTorso, sHead, sHair, sLegL, sLegR, sArmL, sArmR]) m.instanceMatrix.needsUpdate = true;
+  }
+  const lRot = new THREE.Matrix4();
+  const lEu = new THREE.Euler();
+  /** base × (pivot translate) × (swing about x, raise about z) */
+  const limbMat = (base: THREE.Matrix4, px: number, py: number, rx: number, rz: number) =>
+    lmA.copy(base).multiply(lpivot.makeTranslation(px, py, 0)).multiply(lRot.makeRotationFromEuler(lEu.set(rx, 0, rz)));
+
+  // ---- vehicles: the rover plus three supercars. Walk up to one and press F to drive.
+  type Spec = { top: number; boost: number; accel: number; turn: number; offroad: number };
+  type Vehicle = {
+    kind: "rover" | "supercar";
+    name: string;
+    group: THREE.Group;
+    body: THREE.Object3D;
+    wheels: THREE.Object3D[];
+    flag?: THREE.Object3D;
+    x: number;
+    z: number;
+    heading: number;
+    spec: Spec;
+    nitroAt: THREE.Vector3;
+    beamZ: number;
+    paint: THREE.MeshLambertMaterial;
+    defaultPaint: string;
+  };
+  const ROVER_SPEC: Spec = { top: 21, boost: 32, accel: 17, turn: 2.3, offroad: 0.8 };
+  const SUPER_SPEC: Spec = { top: 27, boost: 42, accel: 23, turn: 2.6, offroad: 0.6 };
+  const WALK_SPEC: Spec = { top: 4.4, boost: 8.2, accel: 40, turn: 3.4, offroad: 1 };
+  const roverV: Vehicle = {
+    kind: "rover",
+    name: "rover",
+    group: rover,
+    body,
+    wheels,
+    flag,
+    x: car.x,
+    z: car.z,
+    heading: car.heading,
+    spec: ROVER_SPEC,
+    nitroAt: nitro.position.clone(),
+    beamZ: beam.position.z,
+    paint: roverPaint,
+    defaultPaint: "#e2452b",
+  };
+  const vehicles: Vehicle[] = [roverV];
+  {
+    const tireGeo = track(
+      mergeGeometries([
+        tint(new THREE.CylinderGeometry(0.44, 0.44, 0.36, 14).rotateZ(Math.PI / 2), INK),
+        tint(new THREE.CylinderGeometry(0.25, 0.25, 0.38, 8).rotateZ(Math.PI / 2), "#d9d2bd"),
+        tint(new THREE.BoxGeometry(0.4, 0.06, 0.06), "#9aa3ad", at(0, 0, 0)),
+      ])!,
+    );
+    const paintGeo = track(
+      mergeGeometries([
+        new THREE.BoxGeometry(2.0, 0.5, 4.4).translate(0, 0.58, 0),
+        new THREE.BoxGeometry(1.9, 0.18, 1.6).rotateX(0.11).translate(0, 0.86, 1.3),
+        new THREE.BoxGeometry(1.9, 0.26, 1.3).translate(0, 0.94, -1.45),
+        new THREE.BoxGeometry(0.26, 0.42, 1.5).translate(-1.02, 0.78, -0.6),
+        new THREE.BoxGeometry(0.26, 0.42, 1.5).translate(1.02, 0.78, -0.6),
+        new THREE.BoxGeometry(1.45, 0.08, 1.15).translate(0, 1.36, -0.25),
+      ])!,
+    );
+    const trimGeo = track(
+      mergeGeometries([
+        tint(new THREE.BoxGeometry(1.55, 0.42, 1.7), "#1d2a3a", at(0, 1.12, -0.15)),
+        tint(new THREE.BoxGeometry(2.1, 0.1, 0.45), INK, at(0, 0.34, 2.15)),
+        tint(new THREE.BoxGeometry(1.0, 0.18, 0.06), INK, at(0, 0.52, 2.21)),
+        tint(new THREE.BoxGeometry(0.5, 0.13, 0.06), "#fff7c2", at(-0.62, 0.74, 2.2)),
+        tint(new THREE.BoxGeometry(0.5, 0.13, 0.06), "#fff7c2", at(0.62, 0.74, 2.2)),
+        tint(new THREE.BoxGeometry(0.55, 0.13, 0.06), "#ff3b2f", at(-0.6, 0.88, -2.21)),
+        tint(new THREE.BoxGeometry(0.55, 0.13, 0.06), "#ff3b2f", at(0.6, 0.88, -2.21)),
+        tint(new THREE.BoxGeometry(0.1, 0.36, 0.1), INK, at(-0.62, 1.22, -1.95)),
+        tint(new THREE.BoxGeometry(0.1, 0.36, 0.1), INK, at(0.62, 1.22, -1.95)),
+        tint(new THREE.BoxGeometry(2.05, 0.08, 0.5), INK, at(0, 1.42, -1.98)),
+        tint(new THREE.BoxGeometry(0.5, 0.12, 0.06), "#555b63", at(0, 0.44, -2.21)),
+        tint(new THREE.BoxGeometry(0.03, 0.08, 3.9), CREAM, at(-1.01, 0.62, 0)),
+        tint(new THREE.BoxGeometry(0.03, 0.08, 3.9), CREAM, at(1.01, 0.62, 0)),
+        tint(new THREE.BoxGeometry(2.04, 0.12, 4.0), INK, at(0, 0.3, 0)),
+      ])!,
+    );
+    const makeSupercar = (paintColor: string, name: string) => {
+      const group = new THREE.Group();
+      const sbody = new THREE.Group();
+      group.add(sbody);
+      const paint = keepMat(new THREE.MeshLambertMaterial({ color: paintColor, flatShading: true }));
+      const pm = new THREE.Mesh(paintGeo, paint);
+      const tm = new THREE.Mesh(trimGeo, vcMat);
+      for (const m of [pm, tm]) {
+        m.castShadow = !lowPower;
+        m.receiveShadow = !lowPower;
+        sbody.add(m);
+      }
+      const sw: THREE.Object3D[] = [];
+      for (const [x, z] of [
+        [-0.98, 1.42],
+        [0.98, 1.42],
+        [-0.98, -1.42],
+        [0.98, -1.42],
+      ]) {
+        const w = new THREE.Group();
+        w.position.set(x, 0.44, z);
+        const m = new THREE.Mesh(tireGeo, vcMat);
+        m.castShadow = !lowPower;
+        w.add(m);
+        group.add(w);
+        sw.push(w);
+      }
+      group.scale.setScalar(0.78);
+      scene.add(group);
+      lifeMovers.push(group);
+      const v: Vehicle = { kind: "supercar", name, group, body: sbody, wheels: sw, x: 0, z: 0, heading: 0, spec: SUPER_SPEC, nitroAt: new THREE.Vector3(0, 0.5, -2.35), beamZ: 9.5, paint, defaultPaint: paintColor };
+      return v;
+    };
+    // Parked in sensible places: by the start gate and at the edge of two plazas
+    const spots: Array<[number, number, number]> = [
+      [9.5, START_Z - 12, Math.PI],
+      [-9.5, START_Z - 34, Math.PI],
+      [CENTERS[0].x + 8, CENTERS[0].y + PLAZA - 6, Math.PI / 2],
+      [CENTERS[1].x - 8, CENTERS[1].y - PLAZA + 6, -Math.PI / 2],
+      [CENTERS[2].x + 8, CENTERS[2].y + PLAZA - 6, Math.PI / 2],
+      [-9.5, 20, Math.PI],
+      [9.5, -60, Math.PI],
+    ];
+    const paints = ["#f4b536", "#2453b3", "#1f9c86"];
+    let made = 0;
+    for (const [x, z, h] of spots) {
+      if (made >= 3) break;
+      if (!freeSpot(x, z, 2) || colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 2.2)) continue;
+      const v = makeSupercar(paints[made], `supercar ${made + 1}`);
+      v.x = x;
+      v.z = z;
+      v.heading = h;
+      v.group.position.set(x, ground(x, z), z);
+      v.group.rotation.y = h;
+      vehicles.push(v);
+      made++;
+    }
+  }
+
+  // Driving or walking, and which vehicle is yours right now
+  let mode: "drive" | "walk" = "drive";
+  let activeV: Vehicle = roverV;
+  let nearV: Vehicle | null = null;
+  let lastMode: string = "";
+  let lastActive: Vehicle | null = null;
+  let lastNear: Vehicle | null | undefined;
+  const parkPose = (v: Vehicle) => {
+    v.x = car.x;
+    v.z = car.z;
+    v.heading = car.heading;
+  };
+  const reportMode = () => {
+    if (mode === lastMode && activeV === lastActive && nearV === lastNear) return;
+    lastMode = mode;
+    lastActive = activeV;
+    lastNear = nearV;
+    cb.onMode?.({ mode, vehicle: activeV.kind, near: nearV ? nearV.kind : null });
+  };
+  function exitVehicle() {
+    if (mode !== "drive" || car.air) return;
+    parkPose(activeV);
+    // step out on whichever side is clear
+    const rx = Math.cos(car.heading);
+    const rz = -Math.sin(car.heading);
+    let ox = car.x - rx * 2.2;
+    let oz = car.z - rz * 2.2;
+    if (colliders.some((c) => Math.hypot(c.x - ox, c.z - oz) < c.r + 0.5)) {
+      ox = car.x + rx * 2.2;
+      oz = car.z + rz * 2.2;
+    }
+    car.x = ox;
+    car.z = oz;
+    car.speed = 0;
+    car.y = ground(ox, oz);
+    car.pitch = car.roll = 0;
+    nitroLevel = 0;
+    nitro.visible = false;
+    mode = "walk";
+    player.visible = true;
+    reportMode();
+  }
+  function enterVehicle(v: Vehicle) {
+    if (mode !== "walk") return;
+    activeV = v;
+    car.x = v.x;
+    car.z = v.z;
+    car.heading = v.heading;
+    car.speed = 0;
+    car.vy = 0;
+    car.air = false;
+    car.y = ground(v.x, v.z);
+    v.body.add(nitro);
+    nitro.position.copy(v.nitroAt);
+    v.group.add(beam);
+    beam.position.z = v.beamZ;
+    mode = "drive";
+    player.visible = false;
+    nearV = null;
+    reportMode();
+  }
+  /** F: get out, or get into the nearest car. */
+  function toggleVehicle() {
+    if (!started) return;
+    if (mode === "drive") exitVehicle();
+    else if (nearV) enterVehicle(nearV);
+  }
+  // Back to the start: always in the rover
+  resetPlayer = () => {
+    if (mode === "walk") enterVehicle(roverV);
+    else if (activeV !== roverV) {
+      parkPose(activeV);
+      mode = "walk";
+      enterVehicle(roverV);
+    }
+    respawn();
+  };
+  function setLook(next: Partial<typeof look>) {
+    Object.assign(look, next);
+    skinMat.color.set(look.skin);
+    hairMat.color.set(look.hair);
+    shirtMat.color.set(look.shirt);
+    pantsMat.color.set(look.pants);
+    roverPaint.color.set(look.rover || "#e2452b");
+    for (const v of vehicles) if (v.kind === "supercar") v.paint.color.set(look.supercar || v.defaultPaint);
+  }
+
+  function animateLife(t: number, dt: number) {
+    const day = 1 - nightAmt;
+    birds.visible = day > 0.3;
+    if (birds.visible) {
+      let i = 0;
+      for (const f of FLOCKS) {
+        const a = t * f.sp;
+        const cx = f.cx + Math.cos(a) * f.r;
+        const cz = f.cz + Math.sin(a) * f.r;
+        // heading along the circle; the rest of the flock trails behind in a V
+        const head = Math.atan2(-Math.sin(a) * Math.sign(f.sp), Math.cos(a) * Math.sign(f.sp));
+        const fx = Math.sin(head);
+        const fz = Math.cos(head);
+        for (let k = 0; k < PER_FLOCK; k++) {
+          const row = Math.ceil(k / 2);
+          const side = k % 2 ? 1 : -1;
+          // flap, then glide for a moment, like real gulls
+          const beat = Math.sin(t * 6 + k * 1.3);
+          const flap = beat > -0.2 ? beat * 0.65 : -0.13;
+          lv.set(cx - fx * row * 3.2 + fz * side * row * 2.8, f.h + Math.sin(t * 0.7 + k) * 0.8 - flap * 0.25, cz - fz * row * 3.2 - fx * side * row * 2.8);
+          lq.setFromEuler(le.set(0, head, -Math.sign(f.sp) * 0.18, "XYZ"));
+          ls.set(1.5, 1.5, 1.5);
+          lm4.compose(lv, lq, ls);
+          birdsBody.setMatrixAt(i, lm4);
+          birdsL.setMatrixAt(i, wingMats(lm4, -0.35, 0.12, -flap, lmA));
+          birdsR.setMatrixAt(i, wingMats(lm4, 0.35, 0.12, flap, lmA));
+          i++;
+        }
+      }
+      for (const m of [birdsBody, birdsL, birdsR]) m.instanceMatrix.needsUpdate = true;
+    }
+
+    flies.visible = day > 0.4 && started;
+    if (flies.visible) {
+      const half = 25;
+      for (let i = 0; i < BUTTERFLIES; i++) {
+        const d = flyData[i];
+        // wander on a lissajous path, kept in a box that follows the rover
+        let x = d.ox + Math.sin(t * d.sp + d.ph) * 3;
+        let z = d.oz + Math.cos(t * d.sp * 0.8 + d.ph * 2) * 3;
+        x = car.x + ((((x - car.x + half) % (half * 2)) + half * 2) % (half * 2)) - half;
+        z = car.z + ((((z - car.z + half) % (half * 2)) + half * 2) % (half * 2)) - half;
+        lv.set(x, terrain(x, z) + 1.3 + Math.sin(t * 2 + d.ph) * 0.5, z);
+        lq.setFromEuler(le.set(0, t * d.sp + d.ph, 0, "XYZ"));
+        ls.set(1.15, 1.15, 1.15);
+        lm4.compose(lv, lq, ls);
+        const flap = 0.15 + Math.abs(Math.sin(t * 13 + d.ph)) * 1.15;
+        fliesBody.setMatrixAt(i, lm4);
+        fliesL.setMatrixAt(i, wingMats(lm4, -0.05, 0, -flap, lmA));
+        fliesR.setMatrixAt(i, wingMats(lm4, 0.05, 0, flap, lmA));
+      }
+      for (const m of [fliesBody, fliesL, fliesR]) m.instanceMatrix.needsUpdate = true;
+    }
+
+    animateStrollers(t, dt);
+
+    for (const b of boats) {
+      b.a += b.sp * dt;
+      const r = (1 + wobble(b.a)) * b.k;
+      const x = Math.cos(b.a) * ISLAND_A * r;
+      const z = Math.sin(b.a) * ISLAND_B * r;
+      b.m.position.set(x, -1.3 + Math.sin(t * 1.4 + b.a * 5) * 0.15, z);
+      // sail along the shore, rocking gently
+      const heading = Math.atan2(-Math.sin(b.a) * ISLAND_A, Math.cos(b.a) * ISLAND_B) + (b.sp < 0 ? Math.PI : 0);
+      b.m.rotation.set(Math.sin(t * 1.1 + b.a) * 0.06, heading, Math.sin(t * 1.3 + b.a) * 0.08);
+    }
+
+    for (const b of balloons) {
+      const a = t * b.sp + b.ph;
+      b.m.position.set(b.cx + Math.cos(a) * b.r, b.h + Math.sin(t * 0.4 + b.ph) * 2, b.cz + Math.sin(a) * b.r);
+      b.m.rotation.y = t * 0.05;
+    }
+
+    for (const r of rotors) r.rotateZ(dt * 1.6);
+
+    // Animals wander inside their pasture, pause to graze, and scatter from the rover
+    for (const an of animals) {
+      const p = pens[an.pen];
+      const near = Math.hypot(car.x - an.x, car.z - an.z);
+      if (near < 6 && Math.abs(car.speed) > 3 && an.scared <= 0) {
+        an.scared = 1.6;
+        an.wait = 0;
+        const away = Math.atan2(an.x - car.x, an.z - car.z);
+        an.tx = an.x + Math.sin(away) * 5;
+        an.tz = an.z + Math.cos(away) * 5;
+      }
+      an.scared = Math.max(0, an.scared - dt);
+      an.tx = Math.max(p.x - p.w / 2 + 1.5, Math.min(p.x + p.w / 2 - 1.5, an.tx));
+      an.tz = Math.max(p.z - p.d / 2 + 1.5, Math.min(p.z + p.d / 2 - 1.5, an.tz));
+      let walking = false;
+      if (an.wait > 0) an.wait -= dt;
+      else {
+        const dx = an.tx - an.x;
+        const dz = an.tz - an.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 0.25) {
+          an.wait = 2 + Math.random() * 5;
+          an.tx = p.x + (Math.random() - 0.5) * (p.w - 3);
+          an.tz = p.z + (Math.random() - 0.5) * (p.d - 3);
+        } else {
+          walking = true;
+          const stepLen = Math.min(dist, an.speed * (an.scared > 0 ? 2.6 : 1) * dt);
+          an.x += (dx / dist) * stepLen;
+          an.z += (dz / dist) * stepLen;
+          const want = Math.atan2(dx, dz);
+          let diff = want - an.face;
+          diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+          an.face += diff * Math.min(1, dt * 5);
+        }
+      }
+      const chick = an.kind === 2;
+      const bob = walking ? Math.abs(Math.sin(t * (chick ? 14 : 7) + an.slot)) * (chick ? 0.18 : 0.08) : 0;
+      // grazing: nose down now and then while standing
+      const graze = !walking && !chick ? Math.max(0, Math.sin(t * 0.8 + an.slot * 2)) * 0.14 : 0;
+      lv.set(an.x, terrain(an.x, an.z) + bob, an.z);
+      lq.setFromEuler(le.set(graze, an.face, 0, "YXZ"));
+      ls.set(1, 1, 1);
+      herds[an.kind].setMatrixAt(an.slot, lm4.compose(lv, lq, ls));
+    }
+    for (const h of herds) h.instanceMatrix.needsUpdate = true;
+  }
+
+  // ---- performance: static batching + frozen transforms (the standard engine playbook)
+  // 1. Every plain-coloured mesh that never moves is baked, with its colour, into one
+  //    mesh per 60 m map cell: hundreds of draw calls become a few dozen, and each cell
+  //    is still culled on its own when it is off screen or outside the shadow camera.
+  // 2. Anything left that never moves stops recomputing its transform every frame.
+  {
+    const dynamic = new Set<THREE.Object3D>([rover, arrow, foam, ...clouds, ...lifeMovers, ...clockHands, ...dayNumbers, ...spinning]);
+    for (const d of dust) dynamic.add(d.m);
+    for (const c of cones) dynamic.add(c.g);
+    for (const g of gears) dynamic.add(g.m);
+    for (const z of zoneRt) {
+      dynamic.add(z.ring);
+      dynamic.add(z.beam);
+      dynamic.add(z.liveTag);
+      if (z.spin) dynamic.add(z.spin);
+    }
+    for (const l of labels) dynamic.add(l.s);
+    const moves = (o: THREE.Object3D) => {
+      for (let p: THREE.Object3D | null = o; p; p = p.parent) if (dynamic.has(p)) return true;
+      return false;
+    };
+    const plain = new Set<THREE.Material>(mats.values());
+    scene.updateMatrixWorld(true);
+    const CELL = 60;
+    const buckets = new Map<string, THREE.BufferGeometry[]>();
+    const baked: THREE.Mesh[] = [];
+    scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || !m.visible || moves(m)) return;
+      const material = m.material as THREE.MeshLambertMaterial;
+      if (!plain.has(material)) return;
+      const src = m.geometry;
+      const g = (src.index ? src.toNonIndexed() : src.clone()) as THREE.BufferGeometry;
+      for (const name of Object.keys(g.attributes)) if (name !== "position" && name !== "normal") g.deleteAttribute(name);
+      if (!g.attributes.normal) g.computeVertexNormals();
+      g.applyMatrix4(m.matrixWorld);
+      const n = g.attributes.position.count;
+      const col = new Float32Array(n * 3);
+      const c = material.color;
+      for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+      g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      const p = new THREE.Vector3().setFromMatrixPosition(m.matrixWorld);
+      const key = `${Math.floor(p.x / CELL)},${Math.floor(p.z / CELL)},${m.castShadow ? 1 : 0}`;
+      let list = buckets.get(key);
+      if (!list) buckets.set(key, (list = []));
+      list.push(g);
+      baked.push(m);
+    });
+    for (const m of baked) m.removeFromParent();
+    const bakedMat = keepMat(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    for (const [key, list] of buckets) {
+      const merged = track(mergeGeometries(list)!);
+      list.forEach((g) => g.dispose());
+      const mesh = new THREE.Mesh(merged, bakedMat);
+      mesh.castShadow = key.endsWith(",1");
+      mesh.receiveShadow = !lowPower;
+      scene.add(mesh);
+    }
+    scene.traverse((o) => {
+      if (o === scene || o === sun || o === sun.target || o === fill || o === fill.target || moves(o)) return;
+      o.matrixAutoUpdate = false;
+      o.updateMatrix();
+    });
+  }
+
+  // Dynamic resolution, as consoles do: when frames run long the render scale drops a
+  // step; when there is headroom again it creeps back up (never above where it failed).
+  const DPR_MAX = Math.min(window.devicePixelRatio, lowPower ? 1.25 : 1.75);
+  const DPR_MIN = Math.min(DPR_MAX, 0.7);
+  let dpr = DPR_MAX;
+  let dprCeiling = DPR_MAX;
+  let frameAvg = 16.7;
+  let lastFrameAt = performance.now();
+  let dprWait = 3000;
+  let lastRaiseAt = -1e9;
+  /** Shadows on or off, how soft (blur radius) and how often they're redrawn. */
+  function setShadows(on: boolean, radius: number, every: number) {
+    shadowEvery = every;
+    sun.shadow.radius = radius;
+    renderer.shadowMap.needsUpdate = true;
+    if (renderer.shadowMap.enabled === on) return;
+    renderer.shadowMap.enabled = on;
+    // drop the old shadow texture so it's rebuilt to match the recompiled materials
+    sun.shadow.map?.dispose();
+    (sun.shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
+    // materials pick up the change on their next compile
+    scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(m)) m.forEach((x) => (x.needsUpdate = true));
+      else if (m) m.needsUpdate = true;
+    });
+  }
+  /** "auto" adapts; the fixed settings from the menu leave the scale alone. */
+  let quality: "auto" | "high" | "medium" | "low" = "auto";
+  function adaptResolution(now: number) {
+    const gap = now - lastFrameAt;
+    lastFrameAt = now;
+    if (gap > 250 || quality !== "auto") return; // a pause (tab switch), not a slow frame
+    frameAvg += (gap - frameAvg) * 0.05;
+    dprWait -= gap;
+    if (dprWait > 0 || !started) return;
+    // Already at the lowest resolution and still slow: drop shadows (the biggest cost)
+    if (frameAvg > 24 && dpr <= DPR_MIN && renderer.shadowMap.enabled) {
+      setShadows(false, sun.shadow.radius, shadowEvery);
+      dprWait = 3000;
+      return;
+    }
+    if (frameAvg > 24 && dpr > DPR_MIN) {
+      // Just raised and it fell over again: that level is too much for this device
+      if (now - lastRaiseAt < 4000) dprCeiling = Math.max(DPR_MIN, dpr - 0.1);
+      dpr = Math.max(DPR_MIN, +(dpr - 0.15).toFixed(2));
+      renderer.setPixelRatio(dpr);
+      resize();
+      dprWait = 1500;
+    } else if (frameAvg < 17.5 && dpr < dprCeiling) {
+      dpr = Math.min(dprCeiling, +(dpr + 0.1).toFixed(2));
+      renderer.setPixelRatio(dpr);
+      resize();
+      lastRaiseAt = now;
+      dprWait = 6000;
+    }
+  }
+
   // ---- time of day: the sky follows the clock in India (?hour=21 previews a time)
   const SKY = {
     night: { top: new THREE.Color("#0b1736"), mid: new THREE.Color("#1f2d5c"), low: new THREE.Color("#3a3f6b") },
@@ -1881,9 +3091,18 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   const DUSK_SUN = new THREE.Color("#ff9a5a");
   const MOON = new THREE.Color("#8fa6ff");
   const WARM = new THREE.Color("#fff3b0");
-  function applyTimeOfDay() {
+  /** Day cycle: a whole day in `cycleSec` seconds, starting from `cycleFrom` o'clock. */
+  let cycleSec: number | null = null;
+  let cycleFrom = 0;
+  let cycleT0 = 0;
+  let shownHour = 12;
+  const liveHour = () => {
     const d = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const h = forcedHour ?? d.getUTCHours() + d.getUTCMinutes() / 60;
+    return d.getUTCHours() + d.getUTCMinutes() / 60;
+  };
+  function applyTimeOfDay() {
+    const h = cycleSec ? (cycleFrom + ((performance.now() - cycleT0) / 1000 / cycleSec) * 24) % 24 : (forcedHour ?? liveHour());
+    shownHour = h;
     // 0 at night, 1 in full day; dusk peaks around sunrise and sunset.
     const day = smooth(5.2, 7.4, h) * (1 - smooth(17.2, 19.4, h));
     const dusk = Math.min(1, Math.max(0, 1 - Math.abs(h - 6.3) / 1.4) + Math.max(0, 1 - Math.abs(h - 18.3) / 1.4));
@@ -1946,8 +3165,12 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     driving = input.held || kUp + kDown + kLeft + kRight > 0;
     const steerIn = started ? Math.max(-1, Math.min(1, kLeft - kRight - input.x)) : 0;
     // Boost burns nitro; with an empty tank it does nothing until a can or the slow refill.
-    const boost = (keys.has("ShiftLeft") || keys.has("ShiftRight") || input.boost) && nitroTank > 0.01;
-    const nitroWant = boost && started && car.speed > 4 && !car.air ? 1 : 0;
+    // On foot Shift/boost means run; in a car it burns nitro
+    const walking = mode === "walk";
+    const spec = walking ? WALK_SPEC : activeV.spec;
+    const wantBoost = keys.has("ShiftLeft") || keys.has("ShiftRight") || input.boost;
+    const boost = wantBoost && (walking || nitroTank > 0.01);
+    const nitroWant = !walking && boost && started && car.speed > 4 && !car.air ? 1 : 0;
     if (nitroWant) nitroTank = Math.max(0, nitroTank - NITRO_BURN * dt);
     else if (started) nitroTank = Math.min(1, nitroTank + NITRO_REFILL * dt);
     nitroLevel += (nitroWant - nitroLevel) * Math.min(1, dt * (nitroWant ? 8 : 4));
@@ -1959,32 +3182,73 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       });
       flameMat.opacity = 0.55 + nitroLevel * 0.4;
     }
-    const brake = keys.has("Space");
+    // Space brakes in a car; on foot it (or the phone's Jump button) jumps
+    const brake = !walking && keys.has("Space");
+    if (walking && (keys.has("Space") || input.jump) && !car.air && started) {
+      car.air = true;
+      car.vy = 8.5;
+      input.jump = false;
+    }
+    if (!walking) input.jump = false;
 
-    const max = (boost ? 32 : 21) * speedScale;
+    const max = (boost ? spec.boost : spec.top) * (walking ? 1 : speedScale);
     const onRoad = openness(car.x, car.z) < 0;
     const grip = car.air ? 0.15 : 1;
-    if (throttle !== 0) car.speed += throttle * (throttle * car.speed < 0 ? 40 : (boost ? 26 : 17) * speedScale) * dt * grip;
-    else car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), (onRoad ? 6 : 9) * dt);
-    if (brake) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 40 * dt);
-    const limit = onRoad ? max : max * 0.8;
-    car.speed = Math.max(-limit * 0.45, Math.min(limit, car.speed));
-    car.steer += (steerIn - car.steer) * Math.min(1, dt * 10);
-    const turn = car.steer * 2.3 * Math.min(1, Math.abs(car.speed) / 6) * Math.sign(car.speed || 1) * (car.air ? 0.3 : 1);
-    car.heading += turn * dt;
+    if (walking) {
+      // On foot the stick moves you relative to the camera (push up to walk away from it,
+      // sideways to cross the screen). The camera keeps its own direction while you turn,
+      // so you can look one way and walk another.
+      const side = started ? kRight - kLeft + input.x : 0;
+      const fwd = started ? kUp - kDown + input.y : 0;
+      const mag = Math.min(1, Math.hypot(side, fwd));
+      const camYaw = car.heading + lookYaw;
+      if (mag > 0.08) {
+        const vx = fwd * Math.sin(camYaw) - side * Math.cos(camYaw);
+        const vz = fwd * Math.cos(camYaw) + side * Math.sin(camYaw);
+        let d = Math.atan2(vx, vz) - car.heading;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        car.heading += d * Math.min(1, dt * 12);
+        lookYaw = Math.atan2(Math.sin(camYaw - car.heading), Math.cos(camYaw - car.heading));
+      }
+      car.speed += (mag * max - car.speed) * Math.min(1, dt * 10);
+      car.steer = 0;
+    } else {
+      if (throttle !== 0) car.speed += throttle * (throttle * car.speed < 0 ? 40 : walking ? spec.accel : (boost ? spec.accel * 1.5 : spec.accel) * speedScale) * dt * grip;
+      else car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), (walking ? 30 : onRoad ? 6 : 9) * dt);
+      if (brake) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 40 * dt);
+      const limit = onRoad ? max : max * spec.offroad;
+      car.speed = Math.max(-limit * 0.45, Math.min(limit, car.speed));
+      car.steer += (steerIn - car.steer) * Math.min(1, dt * 10);
+      // People turn on the spot; cars need to be rolling to turn
+      const turn = walking ? car.steer * spec.turn : car.steer * spec.turn * Math.min(1, Math.abs(car.speed) / 6) * Math.sign(car.speed || 1) * (car.air ? 0.3 : 1);
+      car.heading += turn * dt;
+    }
 
     let nx = car.x + Math.sin(car.heading) * car.speed * dt;
     let nz = car.z + Math.cos(car.heading) * car.speed * dt;
     for (const c of colliders) {
       const dx = nx - c.x;
       const dz = nz - c.z;
-      const min = c.r + 0.95;
+      const min = c.r + (walking ? 0.45 : 0.95);
       if (Math.abs(dx) > min || Math.abs(dz) > min) continue;
       const d = Math.hypot(dx, dz);
       if (d < min && d > 0.0001) {
         nx = c.x + (dx / d) * min;
         nz = c.z + (dz / d) * min;
         car.speed *= 0.55;
+      }
+    }
+    // Parked cars are solid too
+    for (const v of vehicles) {
+      if (v === activeV && !walking) continue;
+      const dx = nx - v.x;
+      const dz = nz - v.z;
+      const min = 1.5 + (walking ? 0.4 : 0.95);
+      const d = Math.hypot(dx, dz);
+      if (d < min && d > 0.0001) {
+        nx = v.x + (dx / d) * min;
+        nz = v.z + (dz / d) * min;
+        if (!walking) car.speed *= 0.55;
       }
     }
     const e = shore(nx, nz);
@@ -2028,20 +3292,56 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     } else {
       car.pitch += (0.12 - car.pitch) * dt * 2;
     }
-    rover.position.set(car.x, car.y, car.z);
-    rover.rotation.set(0, 0, 0);
-    rover.rotateY(car.heading);
-    rover.rotateX(car.pitch);
-    rover.rotateZ(car.roll);
-    body.position.y = Math.sin(t * 18) * 0.03 * Math.min(1, Math.abs(car.speed) / 10);
-    body.rotation.z = -car.steer * 0.05 * Math.min(1, Math.abs(car.speed) / 10);
-    wheels.forEach((w, i) => {
-      w.children[0].rotation.x += (car.speed * dt) / 0.55;
-      if (i < 2) w.rotation.y = car.steer * 0.45;
-    });
-    flag.rotation.y = Math.sin(t * 8) * 0.3;
+    if (!walking) {
+      const v = activeV;
+      v.group.position.set(car.x, car.y, car.z);
+      v.group.rotation.set(0, 0, 0);
+      v.group.rotateY(car.heading);
+      v.group.rotateX(car.pitch);
+      v.group.rotateZ(car.roll);
+      v.body.position.y = Math.sin(t * 18) * 0.03 * Math.min(1, Math.abs(car.speed) / 10);
+      v.body.rotation.z = -car.steer * 0.05 * Math.min(1, Math.abs(car.speed) / 10);
+      v.wheels.forEach((w, i) => {
+        w.children[0].rotation.x += (car.speed * dt) / 0.55;
+        if (i < 2) w.rotation.y = car.steer * 0.45;
+      });
+      if (v.flag) v.flag.rotation.y = Math.sin(t * 8) * 0.3;
+      v.x = car.x;
+      v.z = car.z;
+      v.heading = car.heading;
+    } else {
+      // On foot: stride with arm swing, lean a little into a run, breathe when still
+      const sp = Math.abs(car.speed);
+      walkPhase += sp * 2.1 * dt;
+      const swing = sp > 0.2 ? Math.sin(walkPhase) * Math.min(0.85, 0.3 + sp * 0.08) : 0;
+      player.position.set(car.x, car.y + (sp > 0.2 ? Math.abs(Math.sin(walkPhase)) * 0.07 : Math.sin(t * 2) * 0.012), car.z);
+      player.rotation.set(sp > 5 ? 0.12 : 0, car.heading, 0, "YXZ");
+      if (car.air) {
+        // mid-jump: knees up, arms out
+        pLegL.rotation.x = -0.7;
+        pLegR.rotation.x = 0.35;
+        pArmL.rotation.set(-0.4, 0, -0.9);
+        pArmR.rotation.set(-0.4, 0, 0.9);
+      } else {
+        pLegL.rotation.x = swing;
+        pLegR.rotation.x = -swing;
+        pArmL.rotation.set(-swing * 0.9, 0, 0);
+        pArmR.rotation.set(swing * 0.9, 0, 0);
+      }
+      // close enough to a car to get in?
+      let best = 3.4;
+      nearV = null;
+      for (const v of vehicles) {
+        const d = Math.hypot(v.x - car.x, v.z - car.z);
+        if (d < best) {
+          best = d;
+          nearV = v;
+        }
+      }
+    }
+    reportMode();
 
-    if (!car.air && Math.abs(car.speed) > 7 && frame % 3 === 0) {
+    if (!walking && !car.air && Math.abs(car.speed) > 7 && frame % 3 === 0) {
       const p = dust[dustI++ % dust.length];
       p.life = 1;
       p.m.visible = true;
@@ -2057,7 +3357,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       if (p.life <= 0) p.m.visible = false;
     }
 
-    for (const c of cones) {
+    let conesMoved = false;
+    for (let ci = 0; ci < cones.length; ci++) {
+      const c = cones[ci];
       const dx = c.x - car.x;
       const dz = c.z - car.z;
       const d = Math.hypot(dx, dz);
@@ -2078,20 +3380,32 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         c.tip = Math.min(Math.PI / 2, c.tip + sp * dt * 1.2);
         c.g.position.set(c.x, terrain(c.x, c.z), c.z);
         c.g.quaternion.setFromAxisAngle(c.tipAxis, c.tip);
+        c.g.updateMatrix();
+        coneInst.setMatrixAt(ci, c.g.matrix);
+        bandInst.setMatrixAt(ci, c.g.matrix);
+        conesMoved = true;
       }
     }
+    if (conesMoved) {
+      coneInst.instanceMatrix.needsUpdate = true;
+      bandInst.instanceMatrix.needsUpdate = true;
+    }
 
-    for (const g of gears) {
+    glowMat.size = 3.9 + Math.sin(t * 3) * 0.5;
+    for (let gi = 0; gi < gears.length; gi++) {
+      const g = gears[gi];
       if (g.taken) continue;
       g.m.rotation.y = t * 2.2 + g.x;
       g.m.position.y = ground(g.x, g.z) + 1.4 + Math.sin(t * 2 + g.z) * 0.25;
-      g.glow.position.copy(g.m.position);
-      const pulse = 3.8 + Math.sin(t * 3 + g.x) * 0.6;
-      g.glow.scale.set(pulse, pulse, 1);
+      g.m.updateMatrix();
+      canInst.setMatrixAt(gi, g.m.matrix);
+      glowPos[gi * 3] = g.x;
+      glowPos[gi * 3 + 1] = g.m.position.y;
+      glowPos[gi * 3 + 2] = g.z;
       if (Math.hypot(g.x - car.x, g.z - car.z) < 2.4 && Math.abs(g.m.position.y - car.y - 1) < 2.5) {
         g.taken = true;
-        g.m.visible = false;
-        g.glow.visible = false;
+        canInst.setMatrixAt(gi, HIDDEN);
+        glowPos[gi * 3 + 1] = -999;
         collected++;
         // Each can tops up the nitro tank by a third.
         nitroTank = Math.min(1, nitroTank + NITRO_PER_CAN);
@@ -2103,6 +3417,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         }
       }
     }
+    canInst.instanceMatrix.needsUpdate = true;
+    glowGeo.attributes.position.needsUpdate = true;
 
     let near: number | null = null;
     let best = 5.2;
@@ -2200,12 +3516,19 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     raf = requestAnimationFrame(render);
     if (document.hidden) return;
     const now = performance.now();
+    adaptResolution(now);
+    tick(now);
+  }
+
+  /** One frame: simulate, animate, draw. */
+  function tick(now: number) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     const t = (now - t0) / 1000;
     frame++;
     step(dt, t);
-    if (frame % 600 === 0) applyTimeOfDay();
+    // A running day cycle repaints the sky often (cheap: a 2×256 gradient); otherwise rarely
+    if (frame % (cycleSec ? 6 : 600) === 0) applyTimeOfDay();
     // Slow-device check: after warming up, average the frame rate over 4 s windows.
     if (started && cb.onSlow && !slowReported) {
       slowAcc += dt;
@@ -2264,6 +3587,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       }
       moteGeo.attributes.position.needsUpdate = true;
     }
+    animateLife(t, dt);
     for (const [i, c] of clouds.entries()) {
       c.position.x += dt * (0.6 + (i % 3) * 0.3);
       if (c.position.x > 190) c.position.x = -190;
@@ -2275,7 +3599,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       camLook.set(0, 4, 0);
       camera.position.lerp(camPos, 0.05);
     } else {
-      if (driving && (lookYaw || lookPitch)) {
+      // In a car the view drifts back behind you while driving; on foot it stays put
+      if (driving && mode === "drive" && (lookYaw || lookPitch)) {
         const k = Math.exp(-dt * 2.5);
         lookYaw *= k;
         lookPitch *= k;
@@ -2286,9 +3611,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       const fx = Math.sin(yaw);
       const fz = Math.cos(yaw);
       // view: 0 = close behind the rover, 1 = high and far
-      const back = 8 + view * 20 + Math.abs(car.speed) * 0.2;
+      const back = (mode === "walk" ? 4.5 + view * 12 : 8 + view * 20) + Math.abs(car.speed) * 0.2;
       // Pitch swings the camera up over the rover (positive) or down towards the ground
-      const lift = 4.5 + view * 13 + Math.abs(car.speed) * 0.08 + lookPitch * (6 + view * 8);
+      const lift = (mode === "walk" ? 2.4 + view * 7 : 4.5 + view * 13) + Math.abs(car.speed) * 0.08 + lookPitch * (6 + view * 8);
       camPos.set(car.x - fx * back, car.y + lift, car.z - fz * back);
       const gh = terrain(camPos.x, camPos.z) + 2;
       if (camPos.y < gh) camPos.y = gh;
@@ -2303,8 +3628,20 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       camera.updateProjectionMatrix();
     }
     camera.lookAt(camLook);
-    sun.position.set(camLook.x + 40, 70, camLook.z + 30);
-    sun.target.position.copy(camLook);
+    if (renderer.shadowMap.enabled && frame % shadowEvery === 0) {
+      // Move the sun (and its shadow camera) only on frames that redraw the shadow map,
+      // snapped to the shadow texels, so skipped frames don't slide or shimmer.
+      const texel = 80 / 1024;
+      const sx = Math.round(camLook.x / texel) * texel;
+      const sz = Math.round(camLook.z / texel) * texel;
+      sun.position.set(sx + 40, 70, sz + 30);
+      sun.target.position.set(sx, camLook.y, sz);
+      sun.target.updateMatrixWorld();
+      renderer.shadowMap.needsUpdate = true;
+    } else if (!renderer.shadowMap.enabled) {
+      sun.position.set(camLook.x + 40, 70, camLook.z + 30);
+      sun.target.position.copy(camLook);
+    }
     fill.position.set(camLook.x - 50, 30, camLook.z - 40);
     fill.target.position.copy(camLook);
 
@@ -2315,6 +3652,89 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   camera.position.copy(camPos);
   render();
   cb.onReady();
+
+  // Measuring aid, only with ?perf in the address: frame cost, draw calls, triangles.
+  // Local testing only, so nobody can use it to move around in the time trial
+  if (new URLSearchParams(window.location.search).has("perf") && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    (window as unknown as { __chronosPerf: unknown }).__chronosPerf = {
+      /** Test aid: stand next to vehicle i (on foot). */
+      standBy(i: number) {
+        const v = vehicles[i];
+        if (!v) return vehicles.length;
+        if (mode === "drive") exitVehicle();
+        car.x = v.x + Math.cos(v.heading) * 2.6;
+        car.z = v.z - Math.sin(v.heading) * 2.6;
+        car.heading = v.heading;
+        return v.name;
+      },
+      /** Time each part of a frame on its own (ms per frame, averaged over n). */
+      split(n = 120) {
+        const gl = renderer.getContext();
+        const time = (fn: () => void) => {
+          gl.finish();
+          const a = performance.now();
+          for (let i = 0; i < n; i++) fn();
+          gl.finish();
+          return +((performance.now() - a) / n).toFixed(3);
+        };
+        let tt = (performance.now() - t0) / 1000;
+        return {
+          step: time(() => step(1 / 60, (tt += 1 / 60))),
+          life: time(() => animateLife((tt += 1 / 60), 1 / 60)),
+          strollers: time(() => animateStrollers((tt += 1 / 60), 1 / 60)),
+          minimap: time(() => drawMinimap()),
+          render: time(() => renderer.render(scene, camera)),
+          colliders: colliders.length,
+        };
+      },
+      /** Visible drawables grouped by kind, biggest first. */
+      breakdown() {
+        const out: Record<string, number> = {};
+        scene.traverseVisible((o) => {
+          const d = o as THREE.Mesh;
+          if (!d.isMesh && !(o as THREE.Sprite).isSprite && !(o as THREE.Points).isPoints) return;
+          let parent = "";
+          for (let p = o.parent; p && p !== scene; p = p.parent) parent = p === rover ? "rover" : parent || "group";
+          const key = `${o.type}:${(d.material as THREE.Material).type}${parent ? ":" + parent : ""}${o.castShadow ? ":cast" : ""}`;
+          out[key] = (out[key] ?? 0) + 1;
+        });
+        return Object.fromEntries(Object.entries(out).sort((a, b) => b[1] - a[1]));
+      },
+      bench(n = 120) {
+        const gl = renderer.getContext();
+        gl.finish();
+        const start = performance.now();
+        let simNow = last;
+        const times: number[] = [];
+        for (let i = 0; i < n; i++) {
+          const a = performance.now();
+          simNow += 1000 / 60;
+          tick(simNow);
+          gl.finish();
+          times.push(performance.now() - a);
+        }
+        times.sort((x, y) => x - y);
+        let objects = 0;
+        let meshes = 0;
+        scene.traverse((o) => {
+          objects++;
+          if ((o as THREE.Mesh).isMesh || (o as THREE.Sprite).isSprite || (o as THREE.Points).isPoints) meshes++;
+        });
+        return {
+          avgMs: +((performance.now() - start) / n).toFixed(2),
+          p95Ms: +times[Math.floor(n * 0.95)].toFixed(2),
+          calls: renderer.info.render.calls,
+          triangles: renderer.info.render.triangles,
+          geometries: renderer.info.memory.geometries,
+          textures: renderer.info.memory.textures,
+          programs: renderer.info.programs?.length ?? 0,
+          objects,
+          drawables: meshes,
+          pixelRatio: renderer.getPixelRatio(),
+        };
+      },
+    };
+  }
 
   return {
     input,
@@ -2338,13 +3758,16 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       car.y = ground(car.x, car.z);
       camera.position.set(car.x + (dx / d) * 14, car.y + 9, car.z + (dz / d) * 14);
     },
-    respawn,
+    respawn: () => resetPlayer(),
     look(yaw, pitch) {
-      if (!started || input.held) return;
+      // On foot you can look around while walking (a second finger on the screen)
+      if (!started || (input.held && mode !== "walk")) return;
       lookYaw = Math.atan2(Math.sin(lookYaw + yaw), Math.cos(lookYaw + yaw));
-      lookPitch = Math.max(-0.45, Math.min(0.9, lookPitch + pitch));
+      lookPitch = mode === "walk" ? Math.max(-0.7, Math.min(1.15, lookPitch + pitch)) : Math.max(-0.45, Math.min(0.9, lookPitch + pitch));
     },
-    getSpeed: () => Math.min(1, Math.abs(car.speed) / (32 * speedScale)),
+    getSpeed: () => (mode === "walk" ? 0 : Math.min(1, Math.abs(car.speed) / (32 * speedScale))),
+    toggleVehicle,
+    setLook,
     getNitro: () => nitroTank,
     setSpeedLevel(level) {
       speedScale = SPEED_LEVELS[level] ?? SPEED_LEVELS[1];
@@ -2352,6 +3775,30 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     setTime(hour) {
       forcedHour = hour === null ? null : ((hour % 24) + 24) % 24;
       applyTimeOfDay();
+    },
+    setDayCycle(seconds) {
+      if (seconds && seconds > 0) {
+        // carry on from whatever hour is showing, so switching on doesn't jump
+        cycleFrom = shownHour;
+        cycleT0 = performance.now();
+        cycleSec = seconds;
+      } else cycleSec = null;
+      applyTimeOfDay();
+    },
+    getHour: () => shownHour,
+    setQuality(q) {
+      quality = q;
+      // Quality tiers, as games do: High = soft shadows every frame; Medium = cheaper
+      // shadows every other frame; Low = no shadows; Auto = soft, every other frame.
+      setShadows(!lowPower && q !== "low", q === "medium" ? 1 : 2.5, q === "high" ? 1 : 2);
+      const fixed = q === "high" ? DPR_MAX : q === "medium" ? Math.min(DPR_MAX, 1) : q === "low" ? DPR_MIN : null;
+      if (fixed !== null) dpr = fixed;
+      else {
+        dpr = Math.min(dprCeiling, DPR_MAX);
+        dprWait = 3000;
+      }
+      renderer.setPixelRatio(dpr);
+      resize();
     },
     setArrow(on) {
       arrowOn = on;
@@ -2369,6 +3816,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       }
     },
     snapshot() {
+      if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
       renderer.render(scene, camera);
       return canvas.toDataURL("image/png");
     },

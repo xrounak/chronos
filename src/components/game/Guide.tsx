@@ -268,6 +268,18 @@ export function Guide({
           mood: "happy",
           focus: "boost",
         },
+    touch
+      ? {
+          title: "Hop out",
+          text: "Tap GET OUT to leave the car and walk around (the joystick walks, the big button runs). Walk up to the rover or one of the supercars and tap DRIVE to take it.",
+          mood: "point",
+          focus: "boost",
+        }
+      : {
+          title: "Hop out",
+          text: "Press F to get out and walk around (Shift runs). Walk up to the rover or one of the three supercars and press F to drive it. The menu has Customise for your look and paint.",
+          mood: "point",
+        },
     {
       title: "Follow the arrow",
       text:
@@ -285,7 +297,7 @@ export function Guide({
     },
     {
       title: "The menu",
-      text: "The button at the top left opens every event with fast travel, photos, the leaderboard, speed, camera, time of day and sound. Have fun!",
+      text: "Top left: the menu has every event with fast travel, photos and the leaderboard. The gear under it is settings: speed, controls, camera, time of day (even a whole day cycle), resolution and sound. Have fun!",
       mood: "wave",
       focus: "menu",
     },
