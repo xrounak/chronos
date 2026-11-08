@@ -747,19 +747,27 @@ export function World({ days }: { days: ShowDay[] }) {
         )}
 
         {!touch && (
-          <div className={`nitro-dock ${nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`} aria-label={`Nitro ${Math.round(nitro * 100)} percent`}>
-            <Icon name="nitro" className="nitro-dock-ico" />
-            <span className="nitro-dock-body">
-              <span className="nitro-dock-top">
-                <span>{nitro < 0.02 ? "Nitro empty" : "Nitro"}</span>
-                <span className="nitro-dock-pct">{Math.round(nitro * 100)}%</span>
+          <div
+            className={`nitro-dial ${nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
+            style={{ ["--nitro" as string]: nitro }}
+            role="meter"
+            aria-label="Nitro"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(nitro * 100)}
+          >
+            <span className="nitro-dial-gauge" aria-hidden="true">
+              <span className="nitro-dial-face">
+                <Icon name="nitro" className="nitro-dock-ico" />
+                <span className="nitro-dial-pct">
+                  {Math.round(nitro * 100)}
+                  <small>%</small>
+                </span>
+                <span className="nitro-dial-label">{nitro < 0.02 ? "Empty" : nitro > 0.99 ? "Full" : "Nitro"}</span>
               </span>
-              <span className="nitro-dock-bar" aria-hidden="true">
-                <i style={{ width: `${Math.round(nitro * 100)}%` }} />
-              </span>
-              <span className="nitro-dock-hint">
-                Hold <kbd>Shift</kbd> · cans refill 33%
-              </span>
+            </span>
+            <span className="nitro-dial-hint">
+              Hold <kbd>Shift</kbd>
             </span>
           </div>
         )}

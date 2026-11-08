@@ -47,7 +47,13 @@ export function flyNitro(x: number, y: number, tank: number) {
     void to.offsetWidth; // restart the flare
     to.classList.add("nitro-gain");
     window.setTimeout(() => to.classList.remove("nitro-gain"), 700);
-    tip(r, tank);
+    // The label sits over the whole gauge (the desktop dial), not just its icon
+    const anchor = document.querySelector<HTMLElement>(".nitro-dial") ?? to;
+    anchor.classList.remove("nitro-gain");
+    void anchor.offsetWidth;
+    anchor.classList.add("nitro-gain");
+    window.setTimeout(() => anchor.classList.remove("nitro-gain"), 700);
+    tip(anchor.getBoundingClientRect(), tank);
   };
 
   if (reduced || !onScreen) {
