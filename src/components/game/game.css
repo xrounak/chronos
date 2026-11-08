@@ -1294,6 +1294,9 @@
   .credit-by {
     opacity: 0.7;
   }
+  .credit-sep {
+    opacity: 0.45;
+  }
   .credit-name {
     font: inherit;
     text-transform: uppercase;

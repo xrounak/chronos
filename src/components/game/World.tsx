@@ -244,6 +244,8 @@ export function World({ days }: { days: ShowDay[] }) {
     const a = startGameAudio();
     audio.current = a;
     const id = window.setInterval(() => {
+      // Nothing to update while the tab is in the background
+      if (document.hidden) return;
       a.setSpeed(world.current?.getSpeed() ?? 0);
       // Nitro meter for the HUD (only re-render when it visibly changes)
       const n = world.current?.getNitro() ?? 1;

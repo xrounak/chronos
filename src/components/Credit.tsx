@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/game/Icons";
 
-/** Who built this site: a name that opens a small card with their profiles. */
+/**
+ * Site credit: "Developed by SIC", plus a "Contact developer" link that opens a small card
+ * with the developer's profiles, for anyone who wants to contribute.
+ */
 
 const LINKS = [
   {
@@ -46,19 +49,22 @@ export function Credit({ className = "" }: { className?: string }) {
 
   return (
     <span className={`credit ${className}`} ref={card}>
-      <span className="credit-by">Website by </span>
+      <span className="credit-by">Developed by SIC</span>
+      <span className="credit-sep" aria-hidden="true">
+        ·
+      </span>
       <button type="button" className="credit-name" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
-        Rounak Kumar
+        Contact developer
       </button>
       {open && (
-        <span className="credit-card" role="dialog" aria-label="Rounak Kumar's profiles">
+        <span className="credit-card" role="dialog" aria-label="Contact the developer">
           <span className="credit-head">
             <span className="credit-avatar" aria-hidden="true">
               RK
             </span>
             <span className="flex flex-col">
               <span className="credit-title">Rounak Kumar</span>
-              <span className="credit-role">Designed &amp; built this site</span>
+              <span className="credit-role">Developer · want to contribute? Reach out</span>
             </span>
           </span>
           {LINKS.map((l) => (

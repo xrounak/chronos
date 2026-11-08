@@ -33,6 +33,25 @@ async function load(name: string) {
 
 let tickWanted = true;
 
+/** Sound only plays while this tab is the one in front: visible and focused. */
+const pageActive = () => document.visibilityState === "visible" && document.hasFocus();
+
+let watching = false;
+/** Pause all site audio when the tab is hidden or the window loses focus; resume on return. */
+function watchFocus() {
+  if (watching) return;
+  watching = true;
+  const sync = () => {
+    if (!ctx) return;
+    if (on && pageActive()) void ctx.resume().catch(() => {});
+    else void ctx.suspend().catch(() => {});
+  };
+  document.addEventListener("visibilitychange", sync);
+  window.addEventListener("blur", sync);
+  window.addEventListener("focus", sync);
+  window.addEventListener("pagehide", sync);
+}
+
 /** The clock tick under the scroll story; the 3D game turns it off and plays music instead. */
 export function setTick(wanted: boolean) {
   tickWanted = wanted;
@@ -88,8 +107,9 @@ export async function setSound(next: boolean) {
     master = ctx.createGain();
     master.gain.value = 0.8;
     master.connect(ctx.destination);
+    watchFocus();
   }
-  await ctx.resume().catch(() => {});
+  if (pageActive()) await ctx.resume().catch(() => {});
   await Promise.all(Object.values(FILES).map(load)).catch(() => {});
   startTick();
 }
