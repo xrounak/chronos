@@ -271,13 +271,13 @@ export function Guide({
     touch
       ? {
           title: "Hop out",
-          text: "Tap GET OUT to leave the car and walk around (the joystick walks, the big button runs). Walk up to the rover or one of the supercars and tap DRIVE to take it.",
+          text: "Tap GET OUT (above the NITRO button) to walk. On foot the big button JUMPS. Push the joystick all the way up and hold it a moment to lock a sprint; touch the joystick again to stop. Drag with a second finger to look around. Walk up to the rover or a supercar and tap DRIVE.",
           mood: "point",
           focus: "boost",
         }
       : {
           title: "Hop out",
-          text: "Press F to get out and walk around (Shift runs). Walk up to the rover or one of the three supercars and press F to drive it. The menu has Customise for your look and paint.",
+          text: "Press F to get out and walk around: Shift runs, Space jumps, and the mouse turns the view. Walk up to the rover or one of the three supercars and press F to drive it. The menu has Customise for your look and paint.",
           mood: "point",
         },
     {

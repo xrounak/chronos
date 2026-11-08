@@ -162,6 +162,8 @@ export function World({ days }: { days: ShowDay[] }) {
   /** Driving or on foot, and whether a car is close enough to get into. */
   const [drive, setDrive] = useState<{ mode: "drive" | "walk"; vehicle: "rover" | "supercar"; near: "rover" | "supercar" | null }>({ mode: "drive", vehicle: "rover", near: null });
   const [look, setLook] = useState<Look>(DEFAULT_LOOK);
+  const [joyHeld, setJoyHeld] = useState(false);
+  const [canToggle, setCanToggle] = useState(true);
   const boardDialog = useRef<HTMLDialogElement>(null);
   const [lb, setLb] = useState<{ state: "loading" | "ready" | "off"; runs: Run[] }>({ state: "loading", runs: [] });
 
@@ -315,6 +317,14 @@ export function World({ days }: { days: ShowDay[] }) {
       // the on-foot tune follows the island's time of day (checked about every 2 s)
       if (++audioTicks % 16 === 0) a.setHour(world.current?.getHour() ?? 12);
       a.setSpeed(world.current?.getSpeed() ?? 0);
+      // touch HUD: dim Get out while the stick is held or it can't be used; sprint-lock chip
+      const w = world.current;
+      if (w) {
+        const held = w.input.held;
+        setJoyHeld((p) => (p === held ? p : held));
+        const ok = w.canToggle();
+        setCanToggle((p) => (p === ok ? p : ok));
+      }
       // Nitro meter for the HUD (only re-render when it visibly changes)
       const n = world.current?.getNitro() ?? 1;
       setNitro((prev) => (Math.abs(prev - n) > 0.01 || (n === 1 && prev !== 1) || (n === 0 && prev !== 0) ? n : prev));
@@ -990,9 +1000,10 @@ export function World({ days }: { days: ShowDay[] }) {
             </span>
           </div>
         )}
-        {status === "playing" && drive.mode === "walk" && drive.near && (
+        {/* desktop only: phones already show the DRIVE button */}
+        {status === "playing" && !touch && drive.mode === "walk" && drive.near && (
           <div className="mode-prompt" role="status">
-            {touch ? "Tap DRIVE to get in" : <>Press <kbd>F</kbd> to drive the {drive.near === "rover" ? "rover" : "supercar"}</>}
+            Press <kbd>F</kbd> to drive the {drive.near === "rover" ? "rover" : "supercar"}
           </div>
         )}
         {!touch && !current && (
@@ -1011,22 +1022,11 @@ export function World({ days }: { days: ShowDay[] }) {
         {touch && (
           <>
             {controls === "dpad" ? <DPad world={world} /> : <Joystick world={world} />}
-            {drive.mode === "walk" && (
-              <button
-                type="button"
-                className="jump-btn"
-                aria-label="Jump"
-                onPointerDown={() => {
-                  if (world.current) world.current.input.jump = true;
-                }}
-              >
-                Jump
-              </button>
-            )}
             {(drive.mode === "drive" || drive.near) && (
               <button
                 type="button"
-                className={`door-btn ${drive.mode === "walk" ? "is-in" : ""}`}
+                className={`door-btn ${drive.mode === "walk" ? "is-in" : ""} ${joyHeld || !canToggle ? "is-dim" : ""}`}
+                disabled={!canToggle}
                 onClick={() => {
                   cue("click");
                   world.current?.toggleVehicle();
@@ -1035,23 +1035,41 @@ export function World({ days }: { days: ShowDay[] }) {
                 {drive.mode === "drive" ? "Get out" : "Drive"}
               </button>
             )}
-            <button
-              type="button"
-              className={`boost ${drive.mode === "walk" ? "is-run" : nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
-              style={{ ["--nitro" as string]: nitro }}
-              aria-label={`Nitro boost, ${Math.round(nitro * 100)} percent`}
-              onPointerDown={() => world.current && (world.current.input.boost = true)}
-              onPointerUp={() => world.current && (world.current.input.boost = false)}
-              onPointerCancel={() => world.current && (world.current.input.boost = false)}
-              onPointerLeave={() => world.current && (world.current.input.boost = false)}
-            >
-              <span className="boost-ring" aria-hidden="true" />
-              <span className="boost-face">
-                <Icon name="nitro" className="boost-ico" />
-                <span className="boost-label">{drive.mode === "walk" ? "Run" : nitro < 0.02 ? "Empty" : "Nitro"}</span>
-                {drive.mode === "drive" && <span className="boost-pct">{Math.round(nitro * 100)}%</span>}
-              </span>
-            </button>
+            {drive.mode === "walk" ? (
+              // On foot the big button jumps (running is the sprint lock on the stick)
+              <button
+                type="button"
+                className="boost is-jump"
+                aria-label="Jump"
+                onPointerDown={() => {
+                  if (world.current) world.current.input.jump = true;
+                }}
+              >
+                <span className="boost-ring" aria-hidden="true" />
+                <span className="boost-face">
+                  <Icon name="arrow" className="boost-ico jump-ico" />
+                  <span className="boost-label">Jump</span>
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`boost ${nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
+                style={{ ["--nitro" as string]: nitro }}
+                aria-label={`Nitro boost, ${Math.round(nitro * 100)} percent`}
+                onPointerDown={() => world.current && (world.current.input.boost = true)}
+                onPointerUp={() => world.current && (world.current.input.boost = false)}
+                onPointerCancel={() => world.current && (world.current.input.boost = false)}
+                onPointerLeave={() => world.current && (world.current.input.boost = false)}
+              >
+                <span className="boost-ring" aria-hidden="true" />
+                <span className="boost-face">
+                  <Icon name="nitro" className="boost-ico" />
+                  <span className="boost-label">{nitro < 0.02 ? "Empty" : "Nitro"}</span>
+                  <span className="boost-pct">{Math.round(nitro * 100)}%</span>
+                </span>
+              </button>
+            )}
           </>
         )}
       </div>

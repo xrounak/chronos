@@ -44,6 +44,10 @@ export type WorldHandle = {
   respawn: () => void;
   /** Rover speed from 0 (still) to 1 (full boost). */
   getSpeed: () => number;
+  /** On foot with the stick pushed all the way up for a moment: running on by itself. */
+  getSprintLock: () => boolean;
+  /** Whether Get out / Drive would work right now (not mid-air; a car close enough). */
+  canToggle: () => boolean;
   /** Nitro left in the tank, 0 (empty) to 1 (full). */
   getNitro: () => number;
   /** 0 = Chill, 1 = Normal, 2 = Fast. */
@@ -1888,6 +1892,29 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       mm.fillStyle = d === 0 ? INK : CREAM;
       mm.fillText(String(d + 1), cx, cy + 1);
     });
+    // Cars you can drive: a small car shape in its paint colour, with a light ring so it
+    // stands out on the grass (the one you're driving is the arrow instead)
+    for (const v of vehicles) {
+      if (mode === "drive" && v === activeV) continue;
+      mm.save();
+      mm.translate(v.x * s, v.z * s);
+      mm.fillStyle = "rgba(255, 243, 220, 0.85)";
+      mm.beginPath();
+      mm.arc(0, 0, 13, 0, Math.PI * 2);
+      mm.fill();
+      mm.rotate(-v.heading + Math.PI);
+      mm.fillStyle = `#${v.paint.color.getHexString()}`;
+      mm.strokeStyle = INK;
+      mm.lineWidth = 1.5;
+      mm.beginPath();
+      mm.lineWidth = 2;
+      mm.roundRect(-5.5, -9, 11, 18, 3);
+      mm.fill();
+      mm.stroke();
+      mm.fillStyle = INK;
+      mm.fillRect(-4, -4.5, 8, 4.5);
+      mm.restore();
+    }
     mm.translate(car.x * s, car.z * s);
     mm.rotate(-car.heading + Math.PI);
     mm.fillStyle = CREAM;
@@ -2385,6 +2412,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   scene.add(player);
   lifeMovers.push(player);
   let walkPhase = 0;
+  let sprintLock = false;
+  let lockTimer = 0;
+  let prevHeld = false;
 
   // Strollers: wander between busy spots, pause and look around, wave at you, keep
   // their distance from each other and hurry out of the rover's way.
@@ -3169,7 +3199,20 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     const walking = mode === "walk";
     const spec = walking ? WALK_SPEC : activeV.spec;
     const wantBoost = keys.has("ShiftLeft") || keys.has("ShiftRight") || input.boost;
-    const boost = wantBoost && (walking || nitroTank > 0.01);
+    // Sprint lock (touch): push the stick fully forward for a moment and you keep running
+    // on your own, even after letting go. Touching the stick again ends it.
+    if (walking) {
+      if (input.held && !prevHeld && sprintLock) sprintLock = false;
+      else if (!sprintLock && input.held && input.y > 0.88 && Math.abs(input.x) < 0.45) {
+        lockTimer += dt;
+        if (lockTimer > 0.5) sprintLock = true;
+      } else if (!sprintLock) lockTimer = 0;
+    } else {
+      sprintLock = false;
+      lockTimer = 0;
+    }
+    prevHeld = input.held;
+    const boost = (wantBoost || sprintLock) && (walking || nitroTank > 0.01);
     const nitroWant = !walking && boost && started && car.speed > 4 && !car.air ? 1 : 0;
     if (nitroWant) nitroTank = Math.max(0, nitroTank - NITRO_BURN * dt);
     else if (started) nitroTank = Math.min(1, nitroTank + NITRO_REFILL * dt);
@@ -3199,7 +3242,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       // sideways to cross the screen). The camera keeps its own direction while you turn,
       // so you can look one way and walk another.
       const side = started ? kRight - kLeft + input.x : 0;
-      const fwd = started ? kUp - kDown + input.y : 0;
+      // a locked sprint keeps going forward (steer with the stick while you hold it)
+      const fwd = started ? (sprintLock ? Math.max(0.85, input.held ? input.y : 1) : kUp - kDown + input.y) : 0;
       const mag = Math.min(1, Math.hypot(side, fwd));
       const camYaw = car.heading + lookYaw;
       if (mag > 0.08) {
@@ -3766,6 +3810,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       lookPitch = mode === "walk" ? Math.max(-0.7, Math.min(1.15, lookPitch + pitch)) : Math.max(-0.45, Math.min(0.9, lookPitch + pitch));
     },
     getSpeed: () => (mode === "walk" ? 0 : Math.min(1, Math.abs(car.speed) / (32 * speedScale))),
+    getSprintLock: () => sprintLock,
+    canToggle: () => started && (mode === "drive" ? !car.air : nearV !== null),
     toggleVehicle,
     setLook,
     getNitro: () => nitroTank,
