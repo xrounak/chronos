@@ -18,6 +18,19 @@ const SNOOZE_DAYS = 3;
  * "Not now" (or ignoring it) keeps it away for a few days. On iPhone it shows the
  * Share → Add to Home Screen steps, since Safari has no install button.
  */
+/** Install steps for browsers that don't offer a one-tap prompt. */
+function manualSteps() {
+  const ua = navigator.userAgent;
+  const android = /Android/i.test(ua);
+  if (/iPhone|iPad|iPod/i.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1)) return "Tap the Share button, then Add to Home Screen, to play full screen anytime.";
+  if (/Firefox/i.test(ua) && !android) return "Firefox on computers can't install web apps. Open chronos.sic.gecp.in in Chrome or Edge and use Install from the address bar.";
+  if (/SamsungBrowser/i.test(ua)) return "Tap the menu (≡) at the bottom, then Add page to, then Home screen.";
+  if (android) return "Open the browser menu (⋮ at the top right) and tap Install app or Add to Home screen.";
+  if (/Edg\//.test(ua)) return "Click the install icon at the right of the address bar, or open the menu (…), then Apps, then Install this site as an app.";
+  if (/Safari/i.test(ua) && !/Chrome|Chromium/i.test(ua)) return "In Safari, choose File, then Add to Dock, to keep Chronos like an app.";
+  return "Click the install icon at the right of the address bar, or open the menu (⋮), then Cast, save and share, then Install page as app.";
+}
+
 export function InstallNudge({ busy, request = 0 }: { busy: boolean; request?: number }) {
   const install = useInstall();
   const [ready, setReady] = useState(false);
@@ -69,10 +82,12 @@ export function InstallNudge({ busy, request = 0 }: { busy: boolean; request?: n
         <p className="nudge-title">Psst! Take Chronos with you</p>
         {install.canPrompt ? (
           <p className="nudge-text">Install it to play full screen and open it straight from your home screen. It&apos;s quick and free.</p>
-        ) : (
+        ) : install.ios ? (
           <p className="nudge-text">
             Tap <Icon name="share" className="inline-ico" /> <b>Share</b>, then <b>Add to Home Screen</b> to play full screen anytime.
           </p>
+        ) : (
+          <p className="nudge-text">{manualSteps()}</p>
         )}
         <div className="nudge-actions">
           {install.canPrompt && (

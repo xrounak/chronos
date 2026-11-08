@@ -686,22 +686,23 @@ export function World({ days }: { days: ShowDay[] }) {
               <span>How to play</span>
               <Icon name="help" className="menu-ico" />
             </button>
-            {install.available && (
-              <button
-                type="button"
-                role="menuitem"
-                className="menu-item"
-                onClick={async () => {
-                  cue("click");
-                  setPanel(null);
-                  if (install.canPrompt) await install.prompt();
-                  else setInstallAsk((n) => n + 1);
-                }}
-              >
-                <span>Install the app</span>
-                <Icon name="download" className="menu-ico" />
-              </button>
-            )}
+            {/* Always offered: the browser's own install prompt when it has one, otherwise
+                Babu shows the steps for this browser (or says it's already installed) */}
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              disabled={install.installed}
+              onClick={async () => {
+                cue("click");
+                setPanel(null);
+                if (install.canPrompt) await install.prompt();
+                else setInstallAsk((n) => n + 1);
+              }}
+            >
+              <span>{install.installed ? "Installed on this device" : "Install on this device"}</span>
+              <Icon name={install.installed ? "check" : "download"} className="menu-ico" />
+            </button>
             <Link href="/lite" role="menuitem" className="menu-item">
               <span>Lite version</span>
               <Icon name="page" className="menu-ico" />
