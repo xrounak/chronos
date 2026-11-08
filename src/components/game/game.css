@@ -2344,3 +2344,97 @@
 @keyframes dial-ready {
   50% { filter: drop-shadow(4px 4px 0 var(--ink)) drop-shadow(0 0 10px rgb(244 181 54 / 0.7)); }
 }
+
+/* ------------------------------------------------ Round arrow pad: six equal wedges */
+@layer components {
+  .dpad.dpad-round,
+  .game .dpad.dpad-round {
+    display: block;
+    width: 10.5rem;
+    height: 10.5rem;
+  }
+  .dpad.dpad-round.is-active {
+    opacity: 0.8;
+  }
+  .dpad-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    filter: drop-shadow(3px 3px 0 var(--ink));
+  }
+  .dpad-wedge path:first-of-type {
+    fill: rgb(255 243 220 / 0.7);
+    stroke: var(--ink);
+    stroke-width: 3;
+    stroke-linejoin: round;
+    transition: fill 0.08s;
+  }
+  .dpad-wedge.is-main path:first-of-type {
+    fill: rgb(255 243 220 / 0.95);
+  }
+  .dpad-arrow {
+    fill: var(--ink);
+    stroke: none;
+  }
+  .dpad-wedge.is-on path:first-of-type {
+    fill: var(--red);
+  }
+  .dpad-wedge.is-on .dpad-arrow {
+    fill: var(--cream);
+  }
+  .dpad-hub {
+    fill: rgb(29 24 19 / 0.45);
+    stroke: var(--ink);
+    stroke-width: 3;
+  }
+  @media (max-width: 640px) {
+    .dpad.dpad-round,
+    .game .dpad.dpad-round {
+      width: 9.6rem;
+      height: 9.6rem;
+    }
+  }
+}
+
+/* ------------------------------------------------ Bigger CHRONOS title while playing */
+@layer components {
+  .hud-logo {
+    font-size: 2.4rem;
+    gap: 0.16rem;
+  }
+  .hud-logo span {
+    border-width: 2.5px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  @media (max-width: 640px) {
+    .hud-logo {
+      font-size: 1.6rem;
+      gap: 0.1rem;
+    }
+    .hud-logo span {
+      border-width: 2px;
+      box-shadow: 2px 2px 0 var(--ink);
+    }
+  }
+}
+
+/* ------------------------------------------------ Installed app: clear the notch / selfie camera */
+@media (display-mode: fullscreen), (display-mode: standalone) {
+  :root {
+    --app-top: max(env(safe-area-inset-top), 1.75rem);
+  }
+  .hud {
+    top: var(--app-top);
+  }
+  .start-screen {
+    padding-top: var(--app-top);
+  }
+  html:not(:has(.game)) body {
+    padding-top: var(--app-top);
+  }
+}
+@media (display-mode: fullscreen) and (max-width: 640px), (display-mode: standalone) and (max-width: 640px) {
+  .guide {
+    margin-top: var(--app-top);
+  }
+}

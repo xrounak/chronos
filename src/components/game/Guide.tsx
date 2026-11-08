@@ -19,20 +19,22 @@ export function DPad({
 }) {
   const pad = useRef<HTMLDivElement>(null);
   const pointer = useRef<number | null>(null);
-  const [cell, setCell] = useState<string | null>(null);
+  const [cell, setCell] = useState<number | null>(null);
 
+  // Thumb angle from the pad's centre picks one of six equal wedges; the hub in the
+  // middle is a rest spot (no input).
   const apply = (e: React.PointerEvent) => {
     if (pointer.current !== e.pointerId || !pad.current) return;
     const r = pad.current.getBoundingClientRect();
-    const col = Math.max(
-      -1,
-      Math.min(1, Math.floor(((e.clientX - r.left) / r.width) * 3) - 1),
-    );
-    const row = e.clientY - r.top < r.height / 2 ? -1 : 1;
-    setCell(`${col},${row}`);
+    const dx = e.clientX - (r.left + r.width / 2);
+    const dy = e.clientY - (r.top + r.height / 2);
+    const inHub = Math.hypot(dx, dy) < (r.width / 2) * HUB;
+    const deg = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+    const i = inHub ? null : Math.round(deg / 60) % 6;
+    setCell(i);
     if (world.current) {
-      world.current.input.x = col;
-      world.current.input.y = -row;
+      world.current.input.x = i === null ? 0 : WEDGES[i].x;
+      world.current.input.y = i === null ? 0 : WEDGES[i].y;
     }
   };
   const end = () => {
@@ -45,20 +47,10 @@ export function DPad({
     }
   };
 
-  // [column, row, arrow angle in degrees (0 = up), label]
-  const cells: Array<[number, number, number | null, string]> = [
-    [-1, -1, 315, "Forward left"],
-    [0, -1, 0, "Forward"],
-    [1, -1, 45, "Forward right"],
-    [-1, 1, 225, "Back left"],
-    [0, 1, 180, "Reverse"],
-    [1, 1, 135, "Back right"],
-  ];
-
   return (
     <div
       ref={pad}
-      className={`dpad ${cell ? "is-active" : ""}`}
+      className={`dpad dpad-round ${cell !== null ? "is-active" : ""}`}
       onPointerDown={(e) => {
         pointer.current = e.pointerId;
         if (world.current) world.current.input.held = true;
@@ -74,30 +66,48 @@ export function DPad({
       onPointerCancel={end}
       aria-hidden="true"
     >
-      {cells.map(([c, r, angle, label]) =>
-        angle !== null ? (
-          <span
-            key={`${c},${r}`}
-            className={`dpad-key ${c !== 0 && r !== 0 ? "is-diag" : ""} ${cell === `${c},${r}` ? "is-on" : ""}`}
-            title={label}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              style={{ rotate: `${angle}deg` }}
-              aria-hidden="true"
-            >
+      <svg viewBox="-100 -100 200 200" className="dpad-svg">
+        {WEDGES.map((w, i) => {
+          const a = i * 60;
+          return (
+            <g key={w.label} className={`dpad-wedge ${w.main ? "is-main" : ""} ${cell === i ? "is-on" : ""}`}>
+              <title>{w.label}</title>
+              <path d={wedgePath(a - 30 + GAP, a + 30 - GAP)} />
               <path
-                d="M12 4 L20 16 H14.5 V20 H9.5 V16 H4 Z"
-                fill="currentColor"
+                className="dpad-arrow"
+                d="M0 -13 L11 3 H5 V12 H-5 V3 H-11 Z"
+                transform={`rotate(${a}) translate(0 -66)`}
               />
-            </svg>
-          </span>
-        ) : (
-          <span key="centre" className="dpad-centre" />
-        ),
-      )}
+            </g>
+          );
+        })}
+        <circle r={HUB * 100 - 6} className="dpad-hub" />
+      </svg>
     </div>
   );
+}
+
+/** Six equal wedges clockwise from straight up: forward, the two diagonals each side, reverse. */
+const WEDGES = [
+  { label: "Forward", x: 0, y: 1, main: true },
+  { label: "Forward right", x: 1, y: 1, main: false },
+  { label: "Back right", x: 1, y: -1, main: false },
+  { label: "Reverse", x: 0, y: -1, main: true },
+  { label: "Back left", x: -1, y: -1, main: false },
+  { label: "Forward left", x: -1, y: 1, main: false },
+];
+/** Hub radius as a share of the pad's radius, and the gap either side of each wedge (degrees). */
+const HUB = 0.34;
+const GAP = 2.2;
+const OUTER = 96;
+
+function wedgePath(from: number, to: number) {
+  const inner = HUB * 100;
+  const pt = (deg: number, r: number) => {
+    const t = (deg * Math.PI) / 180;
+    return `${(Math.sin(t) * r).toFixed(2)} ${(-Math.cos(t) * r).toFixed(2)}`;
+  };
+  return `M${pt(from, inner)} L${pt(from, OUTER)} A${OUTER} ${OUTER} 0 0 1 ${pt(to, OUTER)} L${pt(to, inner)} A${inner} ${inner} 0 0 0 ${pt(from, inner)} Z`;
 }
 
 /** Babu, the island's guide: a small round robot critter, drawn in code. */
@@ -235,7 +245,7 @@ export function Guide({
           text:
             controls === "joystick"
               ? "Put your thumb on the round joystick (bottom left) and push it up to drive. Push left or right to turn. Prefer buttons? Switch to arrow buttons below."
-              : "Hold the big up arrow to drive and the down arrow to reverse. The slanted arrows beside them drive and turn at the same time. Slide your thumb between them. Prefer a joystick? Switch below.",
+              : "Hold the top of the wheel to drive and the bottom to reverse. The slices either side drive and turn at the same time. Slide your thumb round the wheel to steer. Prefer a joystick? Switch below.",
           mood: "point",
           focus: "controls",
         }
