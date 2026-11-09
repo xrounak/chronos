@@ -495,7 +495,17 @@ export function World({ days }: { days: ShowDay[] }) {
 
   const current = zone === null ? null : events[zone];
 
+  const nameInput = useRef<HTMLInputElement>(null);
+  const [nameError, setNameError] = useState(false);
   const start = useCallback(() => {
+    // A name is required: it's what goes on the leaderboard
+    if (!validName(playerName)) {
+      setNameError(true);
+      mapDialog.current?.close();
+      nameInput.current?.focus();
+      cue("click");
+      return;
+    }
     cue("click");
     world.current?.start();
     setStatus("playing");
@@ -505,7 +515,7 @@ export function World({ days }: { days: ShowDay[] }) {
     } catch {
       setGuideOpen(true);
     }
-  }, []);
+  }, [playerName]);
 
   // Joystick or arrow buttons, remembered on this device
   useEffect(() => {
@@ -809,6 +819,11 @@ export function World({ days }: { days: ShowDay[] }) {
 
   const goTo = (id: number) => {
     cue("click");
+    // Not playing yet and no name: ask for it first (start() shows the prompt)
+    if (status !== "playing" && !validName(playerName)) {
+      start();
+      return;
+    }
     // Fast travel is handy, but such a run can't go on the time-trial board.
     if (status === "playing") setAssisted(true);
     world.current?.teleport(id);
@@ -1578,14 +1593,20 @@ export function World({ days }: { days: ShowDay[] }) {
             </Link>
           ) : (
             <>
-              <label className="name-field">
+              <label className={`name-field ${nameError ? "is-error" : ""}`}>
                 <span className="label text-[0.6rem]">
-                  Your name for the leaderboard
+                  Your name (needed to play)
                 </span>
                 <input
+                  ref={nameInput}
                   value={playerName}
+                  required
+                  minLength={2}
+                  aria-invalid={nameError}
+                  aria-describedby="name-hint"
                   onChange={(e) => {
                     setPlayerName(e.target.value);
+                    if (validName(e.target.value)) setNameError(false);
                     try {
                       localStorage.setItem(NAME_KEY, e.target.value.trim());
                     } catch {}
@@ -1598,6 +1619,11 @@ export function World({ days }: { days: ShowDay[] }) {
                     e.key === "Enter" && status === "ready" && start()
                   }
                 />
+                {nameError && (
+                  <span id="name-hint" className="name-hint" role="alert">
+                    Enter your name (2 to 24 characters) to start
+                  </span>
+                )}
               </label>
               <div className="flex flex-wrap items-center justify-center gap-3">
                 {status === "loading" ? (
@@ -1605,7 +1631,7 @@ export function World({ days }: { days: ShowDay[] }) {
                 ) : (
                   <button
                     type="button"
-                    className="sticker sticker-big start-go"
+                    className={`sticker sticker-big start-go ${validName(playerName) ? "" : "is-waiting"}`}
                     onClick={start}
                   >
                     Start the engine <Icon name="arrow" className="btn-ico" />

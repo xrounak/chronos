@@ -3039,3 +3039,25 @@
     translate: none;
   }
 }
+
+/* Name is required: a nudge when Start is pressed without one */
+@layer components {
+  .name-field.is-error input {
+    border-color: #c2361d;
+    box-shadow: 3px 3px 0 #c2361d;
+    animation: name-shake 0.35s ease;
+  }
+  .name-hint {
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.7rem;
+    color: #c2361d;
+  }
+  .start-go.is-waiting {
+    opacity: 0.6;
+  }
+}
+@keyframes name-shake {
+  20%, 60% { translate: -6px 0; }
+  40%, 80% { translate: 6px 0; }
+}
