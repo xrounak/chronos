@@ -1341,74 +1341,44 @@ export function World({ days }: { days: ShowDay[] }) {
         )}
 
         {current && (
-          <article
-            className="zone-card"
+          // A slim tag for the event you're parked at: its badge, its name, one link to the
+          // event page (details, rules and the sign-up form live there). Never covers the road.
+          <div
+            className="zone-chip"
             style={{ ["--day" as string]: DAY_COLORS[current.day] }}
             aria-live="polite"
           >
-            {current.photo && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={`/photos/${current.photo}`}
-                alt=""
-                className="zone-photo"
-              />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="label text-[0.6rem]">
-                {live.includes(current.id) && (
-                  <span className="live-badge">Live now</span>
-                )}
-                Day {current.dayNumber}{" "}
-                <span className="max-sm:hidden">· {current.dayTitle}</span> ·{" "}
-                {KIND[current.kind] ?? "Event"}
-              </p>
-              <h2 className="zone-name font-display mt-1 font-black uppercase leading-tight">
-                {current.name}
-              </h2>
-              <p className="label mt-1 text-[0.6rem] opacity-70">
-                {[
-                  current.venue,
-                  current.date.split(" · ")[0],
-                  time(current.startsAt),
-                  current.team,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-              {current.summary && (
-                <p className="mt-2 line-clamp-2 text-sm leading-snug">
-                  {current.summary}
-                </p>
+            <span className="zone-badge" aria-hidden="true">
+              {current.photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={`/photos/${current.photo}`} alt="" />
+              ) : (
+                <b>{current.name.split(/\s+/).filter((w) => /[a-z0-9]/i.test(w)).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</b>
               )}
-            </div>
-            {current.detailsUrl && (
-              <a
-                className="chip zone-details"
-                href={current.detailsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Rule book
-              </a>
-            )}
+              <i>{current.dayNumber}</i>
+            </span>
+            <span className="zone-chip-name">
+              {live.includes(current.id) && <span className="live-dot" aria-label="Live now" />}
+              {current.name}
+            </span>
             {current.registerUrl ? (
               <a
-                className="sticker"
+                className="zone-chip-go"
                 href={current.registerUrl}
                 onClick={() => {
                   cue("click");
                   trackRegister(current.name, "3d-card");
                 }}
               >
-                Register <kbd className="max-sm:hidden">E</kbd>
+                See details <Icon name="arrow" className="btn-ico" />
+                <kbd className="max-sm:hidden">E</kbd>
               </a>
             ) : (
-              <a className="sticker sticker-quiet" href={ALL_EVENTS_URL}>
-                Opens soon
+              <a className="zone-chip-go is-quiet" href={ALL_EVENTS_URL}>
+                Coming soon
               </a>
             )}
-          </article>
+          </div>
         )}
 
         {!touch && drive.mode === "drive" && (
@@ -1905,23 +1875,13 @@ export function World({ days }: { days: ShowDay[] }) {
                           Drive there
                         </button>
                       )}
-                      {e.detailsUrl && (
-                        <a
-                          className="chip"
-                          href={e.detailsUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Details
-                        </a>
-                      )}
                       {e.registerUrl ? (
                         <a
                           className="chip chip-solid"
                           href={e.registerUrl}
                           onClick={() => trackRegister(e.name, "3d-list")}
                         >
-                          Register
+                          See details
                         </a>
                       ) : (
                         <span className="label self-center text-[0.58rem] opacity-60">

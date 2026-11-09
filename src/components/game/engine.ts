@@ -3978,7 +3978,10 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     const kDown = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
     const kLeft = keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0;
     const kRight = keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0;
-    const throttle = started ? Math.max(-1, Math.min(1, kUp - kDown + input.y)) : auto.on ? auto.throttle : 0;
+    // Touch stick, like arcade racers: push it any way and the car drives that way (full
+    // left still accelerates while turning hard); only pulling it down brakes and reverses.
+    const stickGas = input.held ? (input.y < -0.3 ? input.y : Math.max(input.y, Math.min(1, Math.hypot(input.x, input.y)))) : input.y;
+    const throttle = started ? Math.max(-1, Math.min(1, kUp - kDown + (mode === "walk" ? input.y : stickGas))) : auto.on ? auto.throttle : 0;
     // Driving (joystick held or a drive key down) brings the camera back behind the rover.
     driving = input.held || kUp + kDown + kLeft + kRight > 0;
     const steerIn = started ? Math.max(-1, Math.min(1, kLeft - kRight - input.x)) : auto.on ? auto.steer : 0;

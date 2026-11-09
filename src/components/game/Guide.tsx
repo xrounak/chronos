@@ -247,7 +247,7 @@ export function Guide({
           title: "Driving",
           text:
             controls === "joystick"
-              ? "Put your thumb on the round joystick (bottom left) and push it up to drive. Push left or right to turn. Prefer buttons? Switch to arrow buttons below."
+              ? "Put your thumb on the round joystick (bottom left) and push it the way you want to go: the rover drives and turns that way. Pull it down to brake and reverse. Prefer buttons? Switch to arrow buttons below."
               : "Hold the top of the wheel to drive and the bottom to reverse. The slices either side drive and turn at the same time. Slide your thumb round the wheel to steer. Prefer a joystick? Switch below.",
           mood: "point",
           focus: "controls",
