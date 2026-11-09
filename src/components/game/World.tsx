@@ -280,6 +280,8 @@ export function World({ days }: { days: ShowDay[] }) {
   const [visited, setVisited] = useState<Set<number>>(() => new Set());
   const [gears, setGears] = useState({ n: 0, total: 0 });
   const [nitro, setNitro] = useState(1);
+  /** The intro film's current shot, for its caption and the dip to black between cuts. */
+  const [shot, setShot] = useState<{ n: number; cut: number; title: string; seconds: number } | null>(null);
   /** On the coast loop: the nitro gauges show unlimited. */
   const [onLoop, setOnLoop] = useState(false);
   const [touch, setTouch] = useState(false);
@@ -382,6 +384,7 @@ export function World({ days }: { days: ShowDay[] }) {
             if (n > 0) cue("shimmer");
             setGears({ n, total });
           },
+          onShot: (s) => setShot(s),
           // The clock starts on the first move, not on the start button
           onRunStart: () => {
             startedAt.current = performance.now();
@@ -1567,8 +1570,16 @@ export function World({ days }: { days: ShowDay[] }) {
       )}
 
       {/* ---------------------------------------------------------- Start screen */}
+      {status !== "playing" && shot && (
+        <span key={`dip${shot.cut}`} className="intro-dip" aria-hidden="true" style={{ animationDuration: `${shot.seconds}s` }} />
+      )}
       {status !== "playing" && (
-        <div className="start-screen">
+        <div className={`start-screen ${shot ? "is-film" : ""}`}>
+          {shot && (
+            <p key={`cap${shot.cut}`} className="intro-caption" aria-hidden="true" style={{ animationDuration: `${shot.seconds}s` }}>
+              <b>{String(shot.n + 1).padStart(2, "0")}</b> {shot.title}
+            </p>
+          )}
           <span className="start-ghost" aria-hidden="true">
             2026
           </span>

@@ -3089,3 +3089,63 @@
 @keyframes dial-loop {
   50% { filter: drop-shadow(4px 4px 0 var(--ink)) drop-shadow(0 0 12px rgb(99 211 208 / 0.85)); }
 }
+
+/* Intro film behind the start screen: a lighter veil, a dip to black between cuts, a caption */
+@layer components {
+  .start-screen.is-film {
+    background: radial-gradient(ellipse 40% 62% at 50% 52%, rgb(255 243 220 / 0.88) 0%, rgb(255 243 220 / 0.66) 55%, rgb(255 243 220 / 0) 100%);
+  }
+  .intro-dip {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+    background: #0d0a08;
+    opacity: 0;
+    animation: intro-dip linear both;
+  }
+  .start-screen > .intro-caption {
+    position: absolute;
+    left: 1.1rem;
+    bottom: 1.1rem;
+    max-width: 30vw;
+    padding: 0.3rem 0.6rem;
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+    color: var(--cream);
+    background: rgb(29 24 19 / 0.78);
+    border-left: 4px solid var(--red);
+    pointer-events: none;
+    animation: intro-caption ease both;
+  }
+  .intro-caption b {
+    margin-right: 0.35rem;
+    font-family: var(--font-digits);
+    font-weight: 400;
+    color: var(--mustard);
+  }
+  @media (max-width: 640px) {
+    .start-screen.is-film {
+      background: radial-gradient(ellipse 80% 52% at 50% 50%, rgb(255 243 220 / 0.9) 0%, rgb(255 243 220 / 0.7) 60%, rgb(255 243 220 / 0.15) 100%);
+    }
+    .start-screen > .intro-caption {
+      display: none;
+    }
+  }
+}
+@keyframes intro-dip {
+  0% { opacity: 1; }
+  8% { opacity: 0; }
+  93% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes intro-caption {
+  0%, 6% { opacity: 0; translate: 0 6px; }
+  14% { opacity: 1; translate: 0 0; }
+  86% { opacity: 1; translate: 0 0; }
+  94%, 100% { opacity: 0; translate: 0 0; }
+}

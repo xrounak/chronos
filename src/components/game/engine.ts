@@ -34,6 +34,8 @@ export type WorldCallbacks = {
   onRunReset?: () => void;
   /** Driving or on foot, which vehicle, and whether a car is close enough to get in. */
   onMode?: (s: { mode: "drive" | "walk"; vehicle: "rover" | "supercar"; near: "rover" | "supercar" | null }) => void;
+  /** The intro film cut to a new shot (null once the game starts). */
+  onShot?: (shot: { n: number; cut: number; title: string; seconds: number } | null) => void;
   /** A nitro can was picked up at this point on screen (CSS pixels, viewport); `tank` is the new level. */
   onNitroPickup?: (x: number, y: number, tank: number) => void;
 };
@@ -3005,6 +3007,345 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     for (const v of vehicles) if (v.kind === "supercar") v.paint.color.set(look.supercar || v.defaultPaint);
   }
 
+  // ---- the intro film: while the start screen is up, ground-level shots cut together
+  // (racing the coast loop, drifting a bend, a ramp jump through the cones, people
+  // waving, the start line, the clock tower). Real game pieces, driven by a script.
+  const LOOP_S: number[] = [0];
+  for (let i = 0; i < RING_N; i++) {
+    const a = RING_PTS[i];
+    const b = RING_PTS[(i + 1) % RING_N];
+    LOOP_S.push(LOOP_S[i] + Math.hypot(b[0] - a[0], b[1] - a[1]));
+  }
+  const LOOP_LEN = LOOP_S[RING_N];
+  const LOOP_H = RING_PTS.map((a, i) => {
+    const b = RING_PTS[(i + 1) % RING_N];
+    return Math.atan2(b[0] - a[0], b[1] - a[1]);
+  });
+  /** How sharp the bend is (change of heading per metre), smoothed over a few pieces. */
+  const LOOP_K = LOOP_H.map((_, i) => {
+    const a = LOOP_H[(i - 3 + RING_N) % RING_N];
+    const b = LOOP_H[(i + 3) % RING_N];
+    return Math.atan2(Math.sin(b - a), Math.cos(b - a)) / ((6 * LOOP_LEN) / RING_N);
+  });
+  const loopPt = { x: 0, z: 0, h: 0, k: 0, nx: 0, nz: 0 };
+  /** A point `s` metres round the loop: position, heading, bend and the outward side. */
+  const loopAt = (s: number) => {
+    const m = ((s % LOOP_LEN) + LOOP_LEN) % LOOP_LEN;
+    let lo = 0;
+    let hi = RING_N;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (LOOP_S[mid] <= m) lo = mid;
+      else hi = mid;
+    }
+    const j = (lo + 1) % RING_N;
+    const f = (m - LOOP_S[lo]) / (LOOP_S[lo + 1] - LOOP_S[lo]);
+    const a = RING_PTS[lo];
+    const b = RING_PTS[j];
+    loopPt.x = a[0] + (b[0] - a[0]) * f;
+    loopPt.z = a[1] + (b[1] - a[1]) * f;
+    const h0 = LOOP_H[lo];
+    loopPt.h = h0 + Math.atan2(Math.sin(LOOP_H[j] - h0), Math.cos(LOOP_H[j] - h0)) * f;
+    loopPt.k = LOOP_K[lo] + (LOOP_K[j] - LOOP_K[lo]) * f;
+    loopPt.nx = Math.cos(loopPt.h);
+    loopPt.nz = -Math.sin(loopPt.h);
+    return loopPt;
+  };
+  const S_START = (LOOP_S[RING_START] + LOOP_S[RING_START + 1]) / 2;
+
+  // The three supercars race the loop in the film, each with its own nitro flames
+  const racers = vehicles
+    .filter((v) => v.kind === "supercar")
+    .map((v, i) => {
+      const flame = new THREE.Group();
+      flame.position.copy(v.nitroAt);
+      for (const x of [-0.5, 0.5]) {
+        const j = new THREE.Group();
+        j.position.x = x;
+        j.add(new THREE.Mesh(flameGeo, flameMat), new THREE.Mesh(coreGeo, coreMat));
+        flame.add(j);
+      }
+      flame.visible = false;
+      v.body.add(flame);
+      return { v, s: 0, speed: 30, drift: 0, lane: [-2.3, 0.4, 2.6][i % 3], pace: [1, 0.985, 1.012][i % 3], flame, home: { x: v.x, z: v.z, h: v.heading } };
+    });
+  const placeRacers = (lead: number, gap = 10) =>
+    racers.forEach((r, i) => {
+      r.s = lead - i * gap;
+      r.speed = 30;
+      r.drift = 0;
+    });
+  function updateRacers(dt: number, t: number) {
+    racers.forEach((r, i) => {
+      const bendNow = Math.abs(loopAt(r.s).k);
+      const want = Math.max(22, Math.min(34, 34 - bendNow * 650)) * r.pace * (1 + Math.sin(t * 0.35 + i * 2.1) * 0.035);
+      const accel = want - r.speed;
+      r.speed += accel * Math.min(1, dt * 1.2);
+      r.s += r.speed * dt;
+      const q = loopAt(r.s);
+      // Sliding: the faster through a bend, the more the tail steps out
+      const slide = Math.max(-0.6, Math.min(0.6, r.speed * r.speed * q.k * 0.045));
+      r.drift += (slide - r.drift) * Math.min(1, dt * 3.5);
+      const lane = r.lane + Math.sin(t * 0.21 + i * 1.7) * 0.8;
+      const x = q.x + q.nx * lane;
+      const z = q.z + q.nz * lane;
+      const yaw = q.h + r.drift;
+      const v = r.v;
+      v.group.position.set(x, ground(x, z), z);
+      v.group.rotation.set(0, yaw, 0);
+      v.wheels.forEach((w, wi) => {
+        w.children[0].rotation.x += (r.speed * dt) / 0.34;
+        // counter-steer: the front wheels point where the car is really going
+        if (wi < 2) w.rotation.y = -r.drift * 0.9;
+      });
+      r.flame.visible = accel > 0.4 && Math.abs(q.k) < 0.008;
+      if (r.flame.visible) r.flame.scale.set(1, 1, 0.75 + Math.random() * 0.5);
+      // tyre smoke off the back wheels while sliding
+      if (Math.abs(r.drift) > 0.2 && (frame + i) % 2 === 0) {
+        const fx = Math.sin(yaw);
+        const fz = Math.cos(yaw);
+        const side = (frame >> 1) % 2 ? 0.8 : -0.8;
+        const px = x - fx * 1.2 + fz * side;
+        const pz = z - fz * 1.2 - fx * side;
+        const d = dust[dustI++ % dust.length];
+        d.life = 1;
+        d.m.visible = true;
+        d.m.position.set(px, ground(px, pz) + 0.3, pz);
+        d.mat.color.set("#efece6");
+      }
+    });
+  }
+
+  // The rover drives itself in the film, through the real physics (ramps, cones, people)
+  const auto = { on: false, throttle: 0, steer: 0, boost: false };
+  let autoSpeed = 0;
+  let aim: (() => [number, number]) | null = null;
+  const driveFrom = (x: number, z: number, heading: number, speed: number, target: number, to: () => [number, number]) => {
+    car.x = x;
+    car.z = z;
+    car.heading = heading;
+    car.speed = speed;
+    car.vy = 0;
+    car.air = false;
+    car.y = ground(x, z);
+    nitroTank = 1;
+    autoSpeed = target;
+    aim = to;
+    auto.on = true;
+  };
+  const coneHome = cones.map((c) => [c.x, c.z] as const);
+  function resetCones() {
+    cones.forEach((c, i) => {
+      [c.x, c.z] = coneHome[i];
+      c.vx = c.vz = 0;
+      c.tip = 0;
+      c.g.position.set(c.x, terrain(c.x, c.z), c.z);
+      c.g.quaternion.identity();
+      c.g.updateMatrix();
+      coneInst.setMatrixAt(i, c.g.matrix);
+      bandInst.setMatrixAt(i, c.g.matrix);
+    });
+    coneInst.instanceMatrix.needsUpdate = true;
+    bandInst.instanceMatrix.needsUpdate = true;
+  }
+
+  const lookWant = new THREE.Vector3();
+  const camAt = (x: number, z: number, lift: number) => camPos.set(x, Math.max(terrain(x, z), -0.6) + lift, z);
+  type Shot = { title: string; dur: number; fov: number; setup: () => void; cam: (u: number) => void };
+  const SHOTS: Shot[] = [
+    {
+      // alongside the leader, from the inland side so the sea fills the background
+      title: "The coast loop · nitro never runs out",
+      dur: 6.5,
+      fov: 44,
+      setup: () => placeRacers(S_START + 30),
+      cam: (u) => {
+        const r = racers[0];
+        const q = loopAt(r.s);
+        const p = r.v.group.position;
+        const fx = Math.sin(q.h);
+        const fz = Math.cos(q.h);
+        const along = 3 - u * 0.9;
+        camAt(p.x - q.nx * 6.8 + fx * along, p.z - q.nz * 6.8 + fz * along, 1.2);
+        lookWant.set(p.x + fx * 2, p.y + 0.8, p.z + fz * 2);
+      },
+    },
+    {
+      // low on the inside of the sharpest bend ahead, panning as they slide past
+      title: "Drift the bends",
+      dur: 6,
+      fov: 38,
+      setup: () => {
+        const s0 = racers[0].s;
+        let best = -1;
+        let bs = s0 + 80;
+        for (let s = s0 + 60; s < s0 + 125; s += 2.5) {
+          const k = Math.abs(loopAt(s).k);
+          if (k > best) {
+            best = k;
+            bs = s;
+          }
+        }
+        const q = loopAt(bs);
+        const off = (RING_HALF + 3.5) * (q.k >= 0 ? 1 : -1);
+        camAt(q.x + q.nx * off, q.z + q.nz * off, 0.9);
+      },
+      cam: () => {
+        const p = racers[0].v.group.position;
+        lookWant.set(p.x, p.y + 0.6, p.z);
+      },
+    },
+    {
+      // beside the first ramp: the rover flies over (in slow motion) and ploughs the cones
+      title: "Ramps, jumps and cones",
+      dur: 6.5,
+      fov: 46,
+      setup: () => {
+        resetCones();
+        driveFrom(0, 161, Math.PI, 16, 30, () => {
+          const z = car.z - 12;
+          return [z < 108 && z > 80 ? Math.sin(z * 0.5) * 1.5 : 0, z];
+        });
+        camAt(7.5, 118, 1.1);
+        lookWant.set(0, 1, 150);
+      },
+      cam: () => lookWant.set(car.x, car.y + 0.8, car.z),
+    },
+    {
+      // the rover crawls up the Day 2 road and the people along it turn and wave
+      title: "Wave at the locals",
+      dur: 6.5,
+      fov: 42,
+      setup: () => {
+        driveFrom(26, 0, Math.PI / 2, 2, 2, () => [car.x + 10, 0]);
+        const n = Math.min(6, strollers.length);
+        for (let k = 0; k < n; k++) {
+          const s = strollers[k];
+          s.x = s.tx = 33 + k * 3.6;
+          s.z = s.tz = k % 2 ? 4.4 : -4.4;
+          s.h = k % 2 ? Math.PI : 0;
+          s.state = "idle";
+          s.timer = 14;
+          s.wave = 0;
+          s.flee = 0;
+          s.speed = 0;
+        }
+      },
+      cam: (u) => {
+        camAt(car.x + 7 - u * 0.3, -8.5, 1.5);
+        lookWant.set(car.x + 1, 1.1, 0.5);
+      },
+    },
+    {
+      // just past the start line on the beach side: the pack blasts through the arch
+      title: "Race the start line",
+      dur: 5,
+      fov: 40,
+      setup: () => {
+        placeRacers(S_START - 50, 8);
+        const q = loopAt(S_START + 18);
+        const off = RING_HALF + 2.2;
+        camAt(q.x + q.nx * off, q.z + q.nz * off, 1.3);
+        const a = loopAt(S_START - 6);
+        lookWant.set(a.x, 2.4, a.z);
+      },
+      cam: () => {
+        const p = racers[0].v.group.position;
+        const a = loopAt(S_START - 4);
+        lookWant.set((a.x * 2 + p.x) / 3, 2.2, (a.z * 2 + p.z) / 3);
+      },
+    },
+    {
+      // a slow crane up the clock tower as the rover rolls in and stops
+      title: "Find every event",
+      dur: 7,
+      fov: 48,
+      setup: () => driveFrom(-2, TOWER_Z + 80, Math.PI, 10, 12, () => [-2, car.z - 10]),
+      cam: (u) => {
+        const e = smooth(0, 7, u);
+        camAt(11 - e * 4, TOWER_Z + 36 - e * 8, 1 + e * 7);
+        lookWant.set(0, 3 + e * 17, TOWER_Z);
+        if (car.z < TOWER_Z + 34) autoSpeed = 0;
+      },
+    },
+  ];
+  const introOn = !reduced && racers.length > 0;
+  let shotI = -1;
+  let shotT = 0;
+  let cut = 0;
+  let snap = true;
+  let introFov = 46;
+  let slow = 1;
+  /** Advance the film by `dt`; returns the time step for the world (slow motion mid-jump). */
+  function introUpdate(dt: number, t: number) {
+    shotT += dt;
+    if (shotI < 0 || shotT >= SHOTS[shotI].dur) {
+      shotI = (shotI + 1) % SHOTS.length;
+      shotT = 0;
+      auto.on = false;
+      aim = null;
+      const shot = SHOTS[shotI];
+      shot.setup();
+      snap = true;
+      introFov = shot.fov;
+      cb.onShot?.({ n: shotI, cut: ++cut, title: shot.title, seconds: shot.dur });
+    }
+    slow += ((auto.on && car.air ? 0.3 : 1) - slow) * Math.min(1, dt * 8);
+    const sdt = dt * slow;
+    updateRacers(sdt, t);
+    if (auto.on && aim) {
+      const [ax, az] = aim();
+      let d = Math.atan2(ax - car.x, az - car.z) - car.heading;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      auto.steer = Math.max(-1, Math.min(1, d * 2.5));
+      const ds = autoSpeed - car.speed;
+      auto.throttle = Math.abs(ds) < 0.3 ? 0 : Math.max(-1, Math.min(1, ds * 0.4));
+      auto.boost = autoSpeed > 22;
+    } else {
+      auto.throttle = 0;
+      auto.steer = 0;
+      auto.boost = false;
+    }
+    return sdt;
+  }
+  function introCamera(dt: number) {
+    if (introOn && shotI >= 0) {
+      SHOTS[shotI].cam(shotT);
+      camera.position.copy(camPos);
+      if (snap) camLook.copy(lookWant);
+      else camLook.lerp(lookWant, 1 - Math.pow(0.002, dt));
+      snap = false;
+      return;
+    }
+    // Reduced motion: one still view of the start line from the beach
+    const q = loopAt(S_START + 24);
+    camAt(q.x + q.nx * (RING_HALF + 2.5), q.z + q.nz * (RING_HALF + 2.5), 1.4);
+    const a = loopAt(S_START);
+    camLook.set(a.x, 3, a.z);
+    camera.position.copy(camPos);
+  }
+  /** The film ends: cars back where they park, cones up, the rover at the start gate. */
+  function endIntro() {
+    auto.on = false;
+    aim = null;
+    slow = 1;
+    for (const r of racers) {
+      const v = r.v;
+      v.group.position.set(r.home.x, ground(r.home.x, r.home.z), r.home.z);
+      v.group.rotation.set(0, r.home.h, 0);
+      v.wheels.forEach((w) => (w.rotation.y = 0));
+      r.flame.visible = false;
+    }
+    resetCones();
+    nitroLevel = 0;
+    nitro.visible = false;
+    resetPlayer();
+    // swoop down from above and behind into the driving view
+    camera.position.set(car.x, car.y + 26, car.z + 34);
+    camLook.set(car.x, car.y, car.z - 6);
+    cb.onShot?.(null);
+  }
+
   function animateLife(t: number, dt: number) {
     const day = 1 - nightAmt;
     birds.visible = day > 0.3;
@@ -3335,10 +3676,10 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     const kDown = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
     const kLeft = keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0;
     const kRight = keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0;
-    const throttle = started ? Math.max(-1, Math.min(1, kUp - kDown + input.y)) : 0;
+    const throttle = started ? Math.max(-1, Math.min(1, kUp - kDown + input.y)) : auto.on ? auto.throttle : 0;
     // Driving (joystick held or a drive key down) brings the camera back behind the rover.
     driving = input.held || kUp + kDown + kLeft + kRight > 0;
-    const steerIn = started ? Math.max(-1, Math.min(1, kLeft - kRight - input.x)) : 0;
+    const steerIn = started ? Math.max(-1, Math.min(1, kLeft - kRight - input.x)) : auto.on ? auto.steer : 0;
     // The time trial clock starts on the first move (a key, or a thumb on the stick)
     if (runArmed && started && (throttle !== 0 || steerIn !== 0 || input.held)) {
       runArmed = false;
@@ -3348,7 +3689,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     // On foot Shift/boost means run; in a car it burns nitro
     const walking = mode === "walk";
     const spec = walking ? WALK_SPEC : activeV.spec;
-    const wantBoost = keys.has("ShiftLeft") || keys.has("ShiftRight") || input.boost;
+    const wantBoost = keys.has("ShiftLeft") || keys.has("ShiftRight") || input.boost || (!started && auto.on && auto.boost);
     // Sprint lock (touch): push the stick fully forward for a moment and you keep running
     // on your own, even after letting go. Touching the stick again ends it.
     if (walking) {
@@ -3363,7 +3704,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     }
     prevHeld = input.held;
     const boost = (wantBoost || sprintLock) && (walking || nitroTank > 0.01);
-    const nitroWant = !walking && boost && started && car.speed > 4 && !car.air ? 1 : 0;
+    const nitroWant = !walking && boost && (started || auto.on) && car.speed > 4 && !car.air ? 1 : 0;
     if (nitroWant) nitroTank = Math.max(0, nitroTank - NITRO_BURN * dt);
     else if (started) nitroTank = Math.min(1, nitroTank + NITRO_REFILL * dt);
     // The coast loop: boost all you like, the tank stays at 100%
@@ -3599,7 +3940,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       glowPos[gi * 3] = g.x;
       glowPos[gi * 3 + 1] = g.m.position.y;
       glowPos[gi * 3 + 2] = g.z;
-      if (Math.hypot(g.x - car.x, g.z - car.z) < 2.4 && Math.abs(g.m.position.y - car.y - 1) < 2.5) {
+      if (started && Math.hypot(g.x - car.x, g.z - car.z) < 2.4 && Math.abs(g.m.position.y - car.y - 1) < 2.5) {
         g.taken = true;
         canInst.setMatrixAt(gi, HIDDEN);
         glowPos[gi * 3 + 1] = -999;
@@ -3641,13 +3982,15 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         else if (n.includes("soccer")) z.spin.position.x = Math.sin(t * 1.7) * 3.5;
       }
     }
-    if (near !== currentZone) {
+    if (near !== currentZone && started) {
       currentZone = near;
       if (near !== null) visited.add(near);
       cb.onZone(near);
     }
 
     // Guide: the first day with events left, then the nearest unseen event inside it.
+    // (Not during the intro film, where the rover drives itself.)
+    if (started) {
     const nextDay = [0, 1, 2].find((d) => zoneRt.some((z) => z.day === d && !visited.has(z.id)));
     let key = "done";
     if (nextDay === undefined) {
@@ -3694,6 +4037,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     }
     if (key === "done" && guideKey !== "done") cb.onGuide(null);
     guideKey = key;
+    }
     arrow.visible = arrowOn && started && guideTarget.on && currentZone === null;
     if (arrow.visible) {
       arrow.position.set(car.x, car.y + 4.6 + Math.sin(t * 3) * 0.25, car.z);
@@ -3723,7 +4067,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     last = now;
     const t = (now - t0) / 1000;
     frame++;
-    step(dt, t);
+    step(!started && introOn ? introUpdate(dt, t) : dt, t);
     // A running day cycle repaints the sky often (cheap: a 2×256 gradient); otherwise rarely
     if (frame % (cycleSec ? 6 : 600) === 0) applyTimeOfDay();
     // Slow-device check: after warming up, average the frame rate over 4 s windows.
@@ -3791,10 +4135,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     }
 
     if (!started) {
-      const a = reduced ? 0.6 : t * 0.06;
-      camPos.set(Math.cos(a) * 170, 95, Math.sin(a) * 210);
-      camLook.set(0, 4, 0);
-      camera.position.lerp(camPos, 0.05);
+      introCamera(dt);
     } else {
       // In a car the view drifts back behind you while driving; on foot it stays put
       if (driving && mode === "drive" && (lookYaw || lookPitch)) {
@@ -3841,7 +4182,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     }
     // Nitro widens the view a little, like the world rushing past
     // wider on foot (see more sky and ground) and in the sideways chase view
-    const fovWant = baseFov + nitroLevel * 9 + (mode === "walk" ? 16 : chaseCam ? 8 : 0);
+    const fovWant = !started ? introFov + (baseFov - 50) : baseFov + nitroLevel * 9 + (mode === "walk" ? 16 : chaseCam ? 8 : 0);
     if (Math.abs(camera.fov - fovWant) > 0.05) {
       camera.fov += (fovWant - camera.fov) * Math.min(1, dt * 6);
       camera.updateProjectionMatrix();
@@ -3897,6 +4238,13 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         car.y = ground(x, z);
         return { x, z };
       },
+      /** Test aid: cut the intro film to shot i on the next frame. */
+      shot(i: number) {
+        shotI = (i - 1 + SHOTS.length) % SHOTS.length;
+        shotT = 1e9;
+        return SHOTS[i]?.title;
+      },
+      film: () => ({ shotI, shotT: +shotT.toFixed(2), slow: +slow.toFixed(2), maxBend: +Math.max(...LOOP_K.map(Math.abs)).toFixed(4), drift: racers.map((r) => +r.drift.toFixed(2)), speed: racers.map((r) => +r.speed.toFixed(1)) }),
       state: () => ({ onLoop, nitroTank: +nitroTank.toFixed(3), x: +car.x.toFixed(1), z: +car.z.toFixed(1), speed: +car.speed.toFixed(1), mode }),
       /** Time each part of a frame on its own (ms per frame, averaged over n). */
       split(n = 120) {
@@ -3970,6 +4318,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   return {
     input,
     start() {
+      if (!started) endIntro();
       started = true;
       runArmed = true;
       canvas.focus?.();
