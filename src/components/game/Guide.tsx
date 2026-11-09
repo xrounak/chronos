@@ -261,13 +261,13 @@ export function Guide({
     touch
       ? {
           title: "Nitro boost",
-          text: "Hold the NITRO button (bottom right) to boost. It burns your tank; grab the glowing red nitro cans on the island to refill it by 33%. It also refills slowly on its own.",
+          text: "Hold the NITRO button (bottom right) to boost. It burns your tank; grab the glowing red nitro cans on the island to refill it by 33%. It also refills slowly on its own. On the coast loop road round the island it never runs out.",
           mood: "happy",
           focus: "boost",
         }
       : {
           title: "Nitro boost",
-          text: "Hold Shift to boost. It burns the nitro tank (top bar); grab the glowing red nitro cans to refill it by 33%. Drag with the mouse to look around.",
+          text: "Hold Shift to boost. It burns the nitro tank (the dial, bottom right); grab the glowing red nitro cans to refill it by 33%. On the coast loop road round the island it never runs out. Drag with the mouse to look around.",
           mood: "happy",
           focus: "boost",
         },

@@ -54,6 +54,8 @@ export type WorldHandle = {
   canToggle: () => boolean;
   /** Nitro left in the tank, 0 (empty) to 1 (full). */
   getNitro: () => number;
+  /** Driving on the coast loop, where nitro never runs out. */
+  onLoop: () => boolean;
   /** 0 = Chill, 1 = Normal, 2 = Fast. */
   setSpeedLevel: (level: number) => void;
   /** Events happening right now get a pulsing beam and a LIVE tag. */
@@ -119,9 +121,34 @@ function segDist(px: number, pz: number, ax: number, az: number, bx: number, bz:
 const onTrack = (x: number, z: number) => segDist(x, z, 0, START_Z, 0, TOWER_Z) < TRACK_W;
 const onBranch = (x: number, z: number) => CENTERS.some((c, d) => segDist(x, z, 0, JUNCTION_Z[d], c.x, c.y) < BRANCH_W);
 
+// ---- the coast loop: a racing road right round the island, just inside the beach.
+// Nitro never runs out while you're on it.
+/** Where the loop runs, as a share of the way out to the waterline (1). */
+const RING_K = 0.84;
+/** Half the loop's width: wider than the track, for racing side by side. */
+const RING_HALF = 5;
+const RING_N = 360;
+const RING_PTS = shorePoints(RING_K, RING_N);
+/** The chequered start line: due south, just behind the start gate. */
+const RING_START = RING_N / 4;
+
+/** How far a point is from the edge of the coast loop (negative on it). */
+function ringGap(x: number, z: number) {
+  // The loop's points go round by angle, so only the few near this point's angle can be closest
+  const t = Math.atan2(z / ISLAND_B, x / ISLAND_A);
+  const c = Math.round(((t < 0 ? t + Math.PI * 2 : t) / (Math.PI * 2)) * RING_N);
+  let d = Infinity;
+  for (let k = -5; k < 5; k++) {
+    const a = RING_PTS[(c + k + RING_N) % RING_N];
+    const b = RING_PTS[(c + k + 1 + RING_N) % RING_N];
+    d = Math.min(d, segDist(x, z, a[0], a[1], b[0], b[1]));
+  }
+  return d - RING_HALF;
+}
+
 /** How far a point is from the roads and plazas (negative inside them). */
-function openness(x: number, z: number) {
-  let d = Math.min(segDist(x, z, 0, START_Z, 0, TOWER_Z) - TRACK_W, Math.hypot(x, z - START_Z) - 16, Math.hypot(x, z - TOWER_Z) - 20);
+function openness(x: number, z: number, ring = ringGap(x, z)) {
+  let d = Math.min(segDist(x, z, 0, START_Z, 0, TOWER_Z) - TRACK_W, Math.hypot(x, z - START_Z) - 16, Math.hypot(x, z - TOWER_Z) - 20, ring);
   CENTERS.forEach((c, i) => {
     d = Math.min(d, segDist(x, z, 0, JUNCTION_Z[i], c.x, c.y) - BRANCH_W, Math.hypot(x - c.x, z - c.y) - PLAZA);
   });
@@ -131,7 +158,9 @@ function openness(x: number, z: number) {
 /** Terrain height without ramps (what the ground mesh shows). */
 function terrain(x: number, z: number) {
   const hills = Math.sin(x * 0.07) * Math.cos(z * 0.05) * 2.6 + Math.sin(x * 0.13 + z * 0.09) * 1.1 + Math.cos(z * 0.17 - x * 0.05) * 0.7 + 2.2;
-  let h = hills * smooth(0, 14, openness(x, z));
+  const ring = ringGap(x, z);
+  // flat under the roads, and a little past the edges of the coast loop so no ground pokes through it
+  let h = hills * smooth(0, 14, openness(x, z, ring)) * smooth(1.5, 9, ring);
   const e = shore(x, z);
   if (e > 0.9) h -= (e - 0.9) * 150;
   return h;
@@ -498,6 +527,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       if (e > 0.86) col.lerp(sand, smooth(0.86, 0.91, e));
       if (o < 0) {
         if (onTrack(x, z) || onBranch(x, z)) col.copy(road);
+        else if (ringGap(x, z) < 0 && Math.hypot(x, z - START_Z) > 16) col.copy(dirt);
         else {
           col.copy(plaza);
           CENTERS.forEach((c, d) => {
@@ -608,6 +638,96 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     labels.push({ s, fade });
     return s;
   };
+
+  // ---- the coast loop road: red-and-white kerbs, a dashed centre line and a chequered
+  // start line, all in one mesh (one draw call), with an arch over the start.
+  {
+    const P = RING_PTS;
+    const N = RING_N;
+    const NR = P.map((_, i) => {
+      const a = P[(i + N - 1) % N];
+      const b = P[(i + 1) % N];
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      // outward (towards the sea)
+      return [(b[1] - a[1]) / l, -(b[0] - a[0]) / l];
+    });
+    const pos: number[] = [];
+    const cols: number[] = [];
+    /** A point `f` of the way along piece `i`, `off` metres out from the centre line. */
+    const at = (i: number, f: number, off: number) => {
+      const a = i % N;
+      const b = (i + 1) % N;
+      const x = P[a][0] + (P[b][0] - P[a][0]) * f + (NR[a][0] + (NR[b][0] - NR[a][0]) * f) * off;
+      const z = P[a][1] + (P[b][1] - P[a][1]) * f + (NR[a][1] + (NR[b][1] - NR[a][1]) * f) * off;
+      return new THREE.Vector3(x, terrain(x, z) + 0.07, z);
+    };
+    const e1 = new THREE.Vector3();
+    const e2 = new THREE.Vector3();
+    const tri = (p: THREE.Vector3, q: THREE.Vector3, r: THREE.Vector3, c: THREE.Color) => {
+      // wind it to face up, whichever way round the points came
+      e1.subVectors(q, p);
+      e2.subVectors(r, p);
+      for (const v of e1.z * e2.x - e1.x * e2.z > 0 ? [p, q, r] : [p, r, q]) {
+        pos.push(v.x, v.y, v.z);
+        cols.push(c.r, c.g, c.b);
+      }
+    };
+    const quad = (i: number, f0: number, f1: number, o0: number, o1: number, c: THREE.Color) => {
+      const a = at(i, f0, o0);
+      const b = at(i, f1, o0);
+      const d = at(i, f0, o1);
+      const e = at(i, f1, o1);
+      tri(a, b, d, c);
+      tri(d, b, e, c);
+    };
+    const asphalt = new THREE.Color("#3b3430");
+    const red = new THREE.Color("#e2452b");
+    const cream = new THREE.Color(CREAM);
+    const ink = new THREE.Color(INK);
+    const K = RING_HALF - 0.9;
+    for (let i = 0; i < N; i++) {
+      if (i === RING_START) {
+        // the start line: two rows of eight squares
+        for (let r = 0; r < 2; r++)
+          for (let k = 0; k < 8; k++) quad(i, r / 2, (r + 1) / 2, RING_HALF - (k * RING_HALF) / 4, RING_HALF - ((k + 1) * RING_HALF) / 4, (r + k) % 2 ? ink : cream);
+        continue;
+      }
+      const kerb = i % 2 ? red : cream;
+      quad(i, 0, 1, RING_HALF, K, kerb);
+      quad(i, 0, 1, K, 0.12, asphalt);
+      quad(i, 0, 1, 0.12, -0.12, i % 2 && Math.abs(i - RING_START) > 2 ? cream : asphalt);
+      quad(i, 0, 1, -0.12, -K, asphalt);
+      quad(i, 0, 1, -K, -RING_HALF, kerb);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    g.computeVertexNormals();
+    const loop = new THREE.Mesh(track(g), keepMat(new THREE.MeshLambertMaterial({ vertexColors: true })));
+    loop.receiveShadow = !lowPower;
+    loop.matrixAutoUpdate = false;
+    scene.add(loop);
+
+    // The start arch, side posts just off the kerbs
+    const s0 = P[RING_START];
+    const s1 = P[RING_START + 1];
+    const mx = (s0[0] + s1[0]) / 2;
+    const mz = (s0[1] + s1[1]) / 2;
+    const [nx, nz] = NR[RING_START];
+    const arch = new THREE.Group();
+    arch.position.set(mx, terrain(mx, mz), mz);
+    arch.rotation.y = Math.atan2(-nz, nx);
+    scene.add(arch);
+    const span = RING_HALF + 0.9;
+    for (const sd of [-1, 1]) {
+      box(0.7, 6.2, 0.7, INK, arch, sd * span, 0, 0);
+      colliders.push({ x: mx + nx * sd * span, z: mz + nz * sd * span, r: 0.5 });
+    }
+    const W = span * 2 + 0.7;
+    box(W, 1.3, 0.5, "#e2452b", arch, 0, 6.2, 0);
+    for (let k = 0; k < 12; k++) box((W - 0.1) / 12, 0.35, 0.56, k % 2 ? INK : CREAM, arch, -(W - 0.1) / 2 + ((k + 0.5) * (W - 0.1)) / 12, 6.95, 0);
+    addLabel("Unlimited nitro", "COAST LOOP", "#e2452b", mx, terrain(mx, mz) + 9.4, mz, 3.4);
+  }
 
   // ---- the clock tower at the end of the track
   const clockHands: THREE.Object3D[] = [];
@@ -1455,6 +1575,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   let collected = 0;
   /** Nitro tank, 0..1: a full tank lasts about 3.5 s of boost. */
   let nitroTank = 1;
+  /** Driving on the coast loop right now (nitro stays full there). */
+  let onLoop = false;
   const NITRO_BURN = 0.28;
   const NITRO_REFILL = 0.02;
   const NITRO_PER_CAN = 0.33;
@@ -1819,6 +1941,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   };
   const sandPath = toPath(1);
   const grassPath = toPath(0.9);
+  const loopPath = toPath(RING_K);
   const mapFont = `400 ${Math.round((minimap?.width ?? 220) * 0.09)}px ${fontOf("--font-pixel-digits", "monospace")}`;
   const drawMinimap = () => {
     if (!mm || !minimap) return;
@@ -1837,6 +1960,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     mm.fill(grassPath);
     mm.strokeStyle = "#3b3430";
     mm.lineCap = "round";
+    // the coast loop round the island
+    mm.lineWidth = RING_HALF * 2 * s;
+    mm.stroke(loopPath);
     mm.lineWidth = TRACK_W * 2 * s;
     mm.beginPath();
     mm.moveTo(0, START_Z * s);
@@ -3240,6 +3366,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     const nitroWant = !walking && boost && started && car.speed > 4 && !car.air ? 1 : 0;
     if (nitroWant) nitroTank = Math.max(0, nitroTank - NITRO_BURN * dt);
     else if (started) nitroTank = Math.min(1, nitroTank + NITRO_REFILL * dt);
+    // The coast loop: boost all you like, the tank stays at 100%
+    onLoop = !walking && started && ringGap(car.x, car.z) < 0.5;
+    if (onLoop) nitroTank = 1;
     nitroLevel += (nitroWant - nitroLevel) * Math.min(1, dt * (nitroWant ? 8 : 4));
     nitro.visible = nitroLevel > 0.03;
     if (nitro.visible) {
@@ -3757,6 +3886,18 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         car.heading = v.heading;
         return v.name;
       },
+      /** Test aid: put the car on the coast loop just before the start line, facing along it. */
+      toLoop(back = 6) {
+        const [x, z] = RING_PTS[(RING_START - back + RING_N) % RING_N];
+        const [bx, bz] = RING_PTS[(RING_START - back + 1 + RING_N) % RING_N];
+        car.x = x;
+        car.z = z;
+        car.heading = Math.atan2(bx - x, bz - z);
+        car.speed = 0;
+        car.y = ground(x, z);
+        return { x, z };
+      },
+      state: () => ({ onLoop, nitroTank: +nitroTank.toFixed(3), x: +car.x.toFixed(1), z: +car.z.toFixed(1), speed: +car.speed.toFixed(1), mode }),
       /** Time each part of a frame on its own (ms per frame, averaged over n). */
       split(n = 120) {
         const gl = renderer.getContext();
@@ -3862,6 +4003,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     toggleVehicle,
     setLook,
     getNitro: () => nitroTank,
+    onLoop: () => onLoop,
     setSpeedLevel(level) {
       speedScale = SPEED_LEVELS[level] ?? SPEED_LEVELS[1];
     },

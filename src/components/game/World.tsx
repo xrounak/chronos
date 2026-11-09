@@ -280,6 +280,8 @@ export function World({ days }: { days: ShowDay[] }) {
   const [visited, setVisited] = useState<Set<number>>(() => new Set());
   const [gears, setGears] = useState({ n: 0, total: 0 });
   const [nitro, setNitro] = useState(1);
+  /** On the coast loop: the nitro gauges show unlimited. */
+  const [onLoop, setOnLoop] = useState(false);
   const [touch, setTouch] = useState(false);
   const [controls, setControls] = useState<ControlStyle>("joystick");
   const [guideOpen, setGuideOpen] = useState(false);
@@ -472,6 +474,8 @@ export function World({ days }: { days: ShowDay[] }) {
         setCanToggle((p) => (p === ok ? p : ok));
         const lock = w.getSprintLock();
         setSprintLock((p) => (p === lock ? p : lock));
+        const loop = w.onLoop();
+        setOnLoop((p) => (p === loop ? p : loop));
       }
       // Nitro meter for the HUD (only re-render when it visibly changes)
       const n = world.current?.getNitro() ?? 1;
@@ -1406,10 +1410,10 @@ export function World({ days }: { days: ShowDay[] }) {
 
         {!touch && drive.mode === "drive" && (
           <div
-            className={`nitro-dial ${nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
+            className={`nitro-dial ${onLoop ? "is-loop" : nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
             style={{ ["--nitro" as string]: nitro }}
             role="meter"
-            aria-label="Nitro"
+            aria-label={onLoop ? "Nitro, unlimited on the coast loop" : "Nitro"}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(nitro * 100)}
@@ -1418,11 +1422,17 @@ export function World({ days }: { days: ShowDay[] }) {
               <span className="nitro-dial-face">
                 <Icon name="nitro" className="nitro-dock-ico" />
                 <span className="nitro-dial-pct">
-                  {Math.round(nitro * 100)}
-                  <small>%</small>
+                  {onLoop ? (
+                    "∞"
+                  ) : (
+                    <>
+                      {Math.round(nitro * 100)}
+                      <small>%</small>
+                    </>
+                  )}
                 </span>
                 <span className="nitro-dial-label">
-                  {nitro < 0.02 ? "Empty" : nitro > 0.99 ? "Full" : "Nitro"}
+                  {onLoop ? "Coast loop" : nitro < 0.02 ? "Empty" : nitro > 0.99 ? "Full" : "Nitro"}
                 </span>
               </span>
             </span>
@@ -1497,9 +1507,9 @@ export function World({ days }: { days: ShowDay[] }) {
             ) : (
               <button
                 type="button"
-                className={`boost ${nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
+                className={`boost ${onLoop ? "is-loop" : nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
                 style={{ ["--nitro" as string]: nitro }}
-                aria-label={`Nitro boost, ${Math.round(nitro * 100)} percent`}
+                aria-label={onLoop ? "Nitro boost, unlimited on the coast loop" : `Nitro boost, ${Math.round(nitro * 100)} percent`}
                 onPointerDown={() =>
                   world.current && (world.current.input.boost = true)
                 }
@@ -1519,7 +1529,7 @@ export function World({ days }: { days: ShowDay[] }) {
                   <span className="boost-label">
                     {nitro < 0.02 ? "Empty" : "Nitro"}
                   </span>
-                  <span className="boost-pct">{Math.round(nitro * 100)}%</span>
+                  <span className="boost-pct">{onLoop ? "∞" : `${Math.round(nitro * 100)}%`}</span>
                 </span>
               </button>
             )}
@@ -1585,7 +1595,8 @@ export function World({ days }: { days: ShowDay[] }) {
           <p className="max-w-md text-sm leading-relaxed sm:text-base">
             Drive the SIC rover around the Chronos island. Every glowing ring is
             an event: park on it to see the details and register. Grab the
-            glowing nitro cans on the way to refill your boost.
+            glowing nitro cans on the way to refill your boost, or race the
+            coast loop road round the island, where nitro never runs out.
           </p>
           {status === "nogl" ? (
             <Link href="/lite" className="sticker sticker-big">

@@ -17,6 +17,8 @@ import { ALL_EVENTS_URL } from "@/lib/events";
 const DAY_COLORS = ["#f4b536", "#2453b3", "#e2452b"];
 const SAND = shorePath(1);
 const GRASS = shorePath(0.9);
+/** The coast loop road (keep in step with RING_K in the game engine). */
+const LOOP = shorePath(0.84);
 const VB = 1.1;
 const START_Z = 155;
 const TOWER_Z = -150;
@@ -59,6 +61,9 @@ export function IslandMap({ days }: { days: ShowDay[] }) {
         <path d={SAND} fill="#1d1813" transform="translate(5 5)" />
         <path d={SAND} fill="#f0d29a" stroke="#1d1813" strokeWidth="3" strokeLinejoin="round" />
         <path d={GRASS} fill="#7fbf4d" />
+        {/* the coast loop road */}
+        <path d={LOOP} fill="none" stroke="#3b3430" strokeWidth="10" strokeLinejoin="round" />
+        <path d={LOOP} fill="none" stroke="#fff3dc" strokeWidth="1" strokeDasharray="4 6" />
         {/* track and branches */}
         <line x1="0" y1={START_Z} x2="0" y2={TOWER_Z} stroke="#3b3430" strokeWidth="9" strokeLinecap="round" />
         <line x1="0" y1={START_Z - 10} x2="0" y2={TOWER_Z + 10} stroke="#fff3dc" strokeWidth="1.2" strokeDasharray="5 7" />

@@ -3061,3 +3061,31 @@
   20%, 60% { translate: -6px 0; }
   40%, 80% { translate: 6px 0; }
 }
+
+/* Coast loop: nitro never runs out, the gauges say so */
+@layer components {
+  .nitro-dial.is-loop .nitro-dial-gauge {
+    background:
+      conic-gradient(from -135deg, #1f9c86 0, #63d3d0 135deg, var(--mustard) 270deg, transparent 270deg),
+      radial-gradient(circle, rgb(29 24 19 / 0.35) 60%, transparent 61%);
+    animation: dial-loop 0.9s ease-in-out infinite;
+  }
+  .nitro-dial.is-loop .nitro-dial-pct {
+    font-size: 1.6rem;
+  }
+  .nitro-dial.is-loop .nitro-dial-label {
+    color: #1f9c86;
+  }
+  .game .boost.is-loop {
+    background: conic-gradient(#1f9c86, #63d3d0, var(--mustard), #1f9c86);
+    animation: boost-ready 0.9s ease-in-out infinite;
+  }
+  .game .boost.is-loop .boost-pct {
+    font-size: 0.8rem;
+    line-height: 1;
+    opacity: 1;
+  }
+}
+@keyframes dial-loop {
+  50% { filter: drop-shadow(4px 4px 0 var(--ink)) drop-shadow(0 0 12px rgb(99 211 208 / 0.85)); }
+}
