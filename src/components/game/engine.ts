@@ -2893,6 +2893,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       [CENTERS[2].x + 8, CENTERS[2].y + PLAZA - 6, Math.PI / 2],
       [-9.5, 20, Math.PI],
       [9.5, -60, Math.PI],
+      [16, START_Z - 2, Math.PI],
+      [-9.5, -100, Math.PI],
     ];
     const paints = ["#f4b536", "#2453b3", "#1f9c86"];
     let made = 0;
@@ -3101,7 +3103,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       r.flame.visible = accel > 0.4 && Math.abs(q.k) < 0.008;
       if (r.flame.visible) r.flame.scale.set(1, 1, 0.75 + Math.random() * 0.5);
       // tyre smoke off the back wheels while sliding
-      if (Math.abs(r.drift) > 0.2 && (frame + i) % 2 === 0) {
+      if (Math.abs(r.drift) > 0.3 && (frame + i) % 3 === 0) {
         const fx = Math.sin(yaw);
         const fz = Math.cos(yaw);
         const side = (frame >> 1) % 2 ? 0.8 : -0.8;
@@ -3111,7 +3113,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         d.life = 1;
         d.m.visible = true;
         d.m.position.set(px, ground(px, pz) + 0.3, pz);
-        d.mat.color.set("#efece6");
+        d.mat.color.set("#f8f6f1");
       }
     });
   }
@@ -3202,11 +3204,11 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       fov: 46,
       setup: () => {
         resetCones();
-        driveFrom(0, 161, Math.PI, 16, 30, () => {
+        driveFrom(0, 157, Math.PI, 18, 30, () => {
           const z = car.z - 12;
           return [z < 108 && z > 80 ? Math.sin(z * 0.5) * 1.5 : 0, z];
         });
-        camAt(7.5, 118, 1.1);
+        camAt(3.4, 117, 0.8);
         lookWant.set(0, 1, 150);
       },
       cam: () => lookWant.set(car.x, car.y + 0.8, car.z),
@@ -3232,8 +3234,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         }
       },
       cam: (u) => {
-        camAt(car.x + 7 - u * 0.3, -8.5, 1.5);
-        lookWant.set(car.x + 1, 1.1, 0.5);
+        camAt(car.x + 10 - u * 0.5, 1.2, 1.4);
+        lookWant.set(car.x, 1, 0);
       },
     },
     {
@@ -3242,7 +3244,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       dur: 5,
       fov: 40,
       setup: () => {
-        placeRacers(S_START - 50, 8);
+        placeRacers(S_START - 75, 8);
         const q = loopAt(S_START + 18);
         const off = RING_HALF + 2.2;
         camAt(q.x + q.nx * off, q.z + q.nz * off, 1.3);
@@ -3263,8 +3265,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       setup: () => driveFrom(-2, TOWER_Z + 80, Math.PI, 10, 12, () => [-2, car.z - 10]),
       cam: (u) => {
         const e = smooth(0, 7, u);
-        camAt(11 - e * 4, TOWER_Z + 36 - e * 8, 1 + e * 7);
-        lookWant.set(0, 3 + e * 17, TOWER_Z);
+        camAt(11 - e * 4, TOWER_Z + 36 - e * 8, 1 + e * 5);
+        lookWant.set(0, 3 + e * 12, TOWER_Z);
         if (car.z < TOWER_Z + 34) autoSpeed = 0;
       },
     },
