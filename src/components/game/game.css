@@ -3249,3 +3249,83 @@
     box-shadow: 3px 3px 0 var(--ink);
   }
 }
+
+/* Start screen, minimal: only the title, the name, Start; small text floats without boxes */
+@layer components {
+  .start-quiet,
+  .start-bottom .start-credit {
+    padding: 0;
+    color: var(--cream);
+    background: none;
+    border: 0;
+    box-shadow: none;
+    text-shadow: 0 1px 3px rgb(0 0 0 / 0.7), 0 0 12px rgb(0 0 0 / 0.35);
+  }
+  .start-bottom .start-credit button {
+    color: inherit;
+  }
+  .start-ticker {
+    position: relative;
+    width: min(46rem, 100%);
+    overflow: hidden;
+    -webkit-mask: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+    mask: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+    pointer-events: none;
+  }
+  .start-ticker span {
+    display: inline-block;
+    white-space: nowrap;
+    font-family: var(--font-hand);
+    font-size: clamp(1rem, 2vw, 1.3rem);
+    color: var(--cream);
+    opacity: 0.85;
+    text-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+    animation: start-ticker 38s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .start-ticker span {
+      animation: none;
+    }
+  }
+
+  /* Between shots: a soft dark dissolve that closes in from the edges, never full black */
+  .intro-dip {
+    background: radial-gradient(ellipse at 50% 50%, rgb(13 10 8 / 0.55) 0%, rgb(13 10 8 / 0.9) 60%, #0d0a08 100%);
+    animation-name: intro-fade;
+    animation-timing-function: ease-in-out;
+  }
+}
+@keyframes start-ticker {
+  to { translate: -50% 0; }
+}
+@keyframes intro-fade {
+  0% { opacity: 0.85; }
+  14% { opacity: 0; }
+  86% { opacity: 0; }
+  100% { opacity: 0.85; }
+}
+/* Phone sideways: the ticker waits, there's no room */
+@media (orientation: landscape) and (max-height: 500px) {
+  .start-ticker {
+    display: none;
+  }
+}
+
+/* Loading (paper behind): the small text goes back to ink */
+@layer components {
+  .start-screen:has(.ldr) .start-quiet,
+  .start-screen:has(.ldr) .start-credit,
+  .start-screen:has(.ldr) .start-ticker span {
+    color: var(--ink);
+    text-shadow: none;
+  }
+}
+
+/* The ticker's long line must not widen the bottom block (buttons would spill off a phone) */
+@layer components {
+  .start-top,
+  .start-bottom {
+    width: 100%;
+    max-width: 100%;
+  }
+}

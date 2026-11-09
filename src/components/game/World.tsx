@@ -1575,14 +1575,9 @@ export function World({ days }: { days: ShowDay[] }) {
       )}
       {status !== "playing" && (
         <div className={`start-screen ${shot ? "is-film" : ""}`}>
-          {shot && (
-            <p key={`cap${shot.cut}`} className="intro-caption" aria-hidden="true" style={{ animationDuration: `${shot.seconds}s` }}>
-              <b>{String(shot.n + 1).padStart(2, "0")}</b> {shot.title}
-            </p>
-          )}
           {/* Title up top, controls at the bottom: the middle stays clear for the intro film */}
           <div className="start-top">
-          <p className="label start-tag text-[0.62rem] sm:text-xs">
+          <p className="label start-quiet text-[0.62rem] sm:text-xs">
             Science &amp; Innovation Club · GEC Palamu presents
           </p>
           <h1 className="sr-only">CHRONOS {FESTIVAL.year}</h1>
@@ -1593,9 +1588,6 @@ export function World({ days }: { days: ShowDay[] }) {
           <p className="display paper-strip text-sm tracking-[0.26em] sm:text-xl">
             {FESTIVAL.tagline}
           </p>
-          <p className="label start-tag start-dates text-[0.65rem] sm:text-xs">
-            {FESTIVAL.dates} · {FESTIVAL.place} · {events.length} events
-          </p>
           </div>
           <div className="start-bottom">
           {status === "nogl" ? (
@@ -1605,9 +1597,6 @@ export function World({ days }: { days: ShowDay[] }) {
           ) : (
             <>
               <label className={`name-field ${nameError ? "is-error" : ""}`}>
-                <span className="label text-[0.6rem]">
-                  <span className="start-tag">Your name (needed to play)</span>
-                </span>
                 <input
                   ref={nameInput}
                   value={playerName}
@@ -1623,7 +1612,8 @@ export function World({ days }: { days: ShowDay[] }) {
                     } catch {}
                   }}
                   maxLength={24}
-                  placeholder="Type your name"
+                  placeholder="Your name (needed to play)"
+                  aria-label="Your name (needed to play)"
                   autoComplete="nickname"
                   enterKeyHint="go"
                   onKeyDown={(e) =>
@@ -1654,11 +1644,13 @@ export function World({ days }: { days: ShowDay[] }) {
               </div>
             </>
           )}
-          <p className="label start-tag start-keys text-[0.58rem]">
-            {touch
-              ? "Joystick to drive · Boost button to go faster"
-              : "W A S D or arrow keys · Shift to boost"}
-          </p>
+          {/* one quiet line drifting by, like film credits */}
+          <div className="start-ticker" aria-hidden="true">
+            <span>
+              {events.length} events · 3 days · 1 island ✦ built by SIC, for everyone ✦ race the coast loop ✦ drift the bends ✦ find every event ✦{" "}
+              {events.length} events · 3 days · 1 island ✦ built by SIC, for everyone ✦ race the coast loop ✦ drift the bends ✦ find every event ✦
+            </span>
+          </div>
           <Credit className="start-credit" />
           </div>
         </div>

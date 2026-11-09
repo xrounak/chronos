@@ -2447,6 +2447,10 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   }
 
   // Plank cottages with a stepped roof, a lit window and hay bales, near each district.
+  /** Where the cottages stand (the intro film visits one), and which way the door faces. */
+  const homes: Array<{ x: number; z: number; face: number }> = [];
+  /** Warm panes over every window, one mesh for all, lit after dark. */
+  const windowGlow: THREE.BufferGeometry[] = [];
   {
     const ROOF = ["#a3442d", "#2f5d8a", "#5b7f3a"];
     CENTERS.forEach((c, d) => {
@@ -2465,6 +2469,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => box(0.5, 3.3, 0.5, "#6b4423", g, sx * 2.85, 0.5, sz * 2.35)));
         box(1.1, 2, 0.12, "#5a3a1c", g, 0, 0.5, 2.52); // door
         [-1.8, 1.8].forEach((wx) => box(0.9, 0.9, 0.12, "#bfe3ef", g, wx, 1.9, 2.52)); // windows
+        g.updateMatrixWorld(true);
+        [-1.8, 1.8].forEach((wx) => windowGlow.push(new THREE.PlaneGeometry(1.15, 1.15).translate(wx, 2.35, 2.6).applyMatrix4(g.matrixWorld)));
+        homes.push({ x, z, face: g.rotation.y });
         const roof = ROOF[(d + k) % ROOF.length];
         for (let i = 0; i < 4; i++) box(6.6 - i * 1.5, 0.55, 5.6, roof, g, 0, 3.7 + i * 0.55, 0);
         box(0.8, 1.8, 0.8, "#8d8a84", g, 1.8, 4.6, -1.2); // chimney
@@ -2475,6 +2482,11 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         colliders.push({ x, z, r: 4.2 });
       }
     });
+    if (windowGlow.length) {
+      const m = new THREE.Mesh(track(mergeGeometries(windowGlow)!), lampGlowMat);
+      m.matrixAutoUpdate = false;
+      scene.add(m);
+    }
   }
 
   // ---- people: one blocky body plan shared by the player (on foot) and the strollers.
@@ -3151,9 +3163,141 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     bandInst.instanceMatrix.needsUpdate = true;
   }
 
+
+  // ---- night lights: searchlights sweeping the sky, glow under the cars, fireworks.
+  // All additive and unlit (no real lights, so no shader rebuilds), shown only after dark.
+  const nightGlowTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d")!;
+    const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, "rgba(255,255,255,1)");
+    r.addColorStop(0.45, "rgba(255,255,255,0.45)");
+    r.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = r;
+    g.fillRect(0, 0, 64, 64);
+    const t = new THREE.CanvasTexture(c);
+    return t;
+  })();
+  const NEON = ["#ff3d7f", "#3dd6ff", "#ffd23d", "#7dff6a", "#b26bff", "#ff7a1a"];
+  const searchlights: THREE.Mesh[] = [];
+  {
+    // a tall open cone, bright at the foot and fading to nothing at the top
+    const g = new THREE.CylinderGeometry(4.5, 0.35, 70, 14, 1, true);
+    g.translate(0, 35, 0);
+    const pos = g.attributes.position;
+    const col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const k = 1 - (pos.getY(i) / 70) * 0.95;
+      col.set([k, k, k], i * 3);
+    }
+    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    track(g);
+    const spots: Array<[number, number]> = [
+      [-(RING_HALF + 3), START_Z + 14],
+      [RING_HALF + 3, START_Z + 14],
+      [-7, TOWER_Z + 6],
+      [7, TOWER_Z + 6],
+      ...CENTERS.map((c) => [c.x, c.y + PLAZA - 2] as [number, number]),
+    ];
+    spots.forEach(([x, z], i) => {
+      const m = new THREE.Mesh(g, keepMat(new THREE.MeshBasicMaterial({ color: NEON[i % NEON.length], vertexColors: true, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })));
+      m.position.set(x, terrain(x, z), z);
+      m.visible = false;
+      m.frustumCulled = false;
+      scene.add(m);
+      lifeMovers.push(m);
+      searchlights.push(m);
+    });
+  }
+  // neon underglow: a soft pool of colour on the road under each car
+  const underglows: THREE.Mesh[] = [];
+  {
+    const g = track(new THREE.PlaneGeometry(4.2, 6.8).rotateX(-Math.PI / 2));
+    vehicles.forEach((v, i) => {
+      const m = new THREE.Mesh(g, keepMat(new THREE.MeshBasicMaterial({ map: nightGlowTex, color: NEON[(i + 1) % NEON.length], transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false })));
+      m.position.y = 0.08;
+      m.visible = false;
+      m.renderOrder = 2;
+      v.group.add(m);
+      underglows.push(m);
+    });
+  }
+  // fireworks: a few bursts at a time, one draw call for every spark
+  const FW_BURSTS = 4;
+  const FW_SPARKS = 56;
+  const fwPos = new Float32Array(FW_BURSTS * FW_SPARKS * 3);
+  const fwCol = new Float32Array(FW_BURSTS * FW_SPARKS * 3);
+  const fwVel = new Float32Array(FW_BURSTS * FW_SPARKS * 3);
+  const fwGeo = track(new THREE.BufferGeometry());
+  fwGeo.setAttribute("position", new THREE.BufferAttribute(fwPos, 3));
+  fwGeo.setAttribute("color", new THREE.BufferAttribute(fwCol, 3));
+  const fireworks = new THREE.Points(fwGeo, keepMat(new THREE.PointsMaterial({ map: nightGlowTex, size: 2.2, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
+  fireworks.frustumCulled = false;
+  fireworks.visible = false;
+  scene.add(fireworks);
+  lifeMovers.push(fireworks);
+  const bursts = Array.from({ length: FW_BURSTS }, (_, b) => ({ x: 0, y: 0, z: 0, age: 1.6 + b * 0.55, color: new THREE.Color() }));
+  /** Where the film wants the fireworks (over a plaza); otherwise round the start and the tower. */
+  let fwFocus: [number, number] | null = null;
+  const FW_SPOTS: Array<[number, number]> = [[0, START_Z - 10], [0, TOWER_Z], ...CENTERS.map((c) => [c.x, c.y] as [number, number])];
+  function animateNightLights(t: number, dt: number) {
+    const on = nightAmt > 0.45;
+    for (const [i, m] of searchlights.entries()) {
+      m.visible = on;
+      if (!on) continue;
+      m.rotation.set(Math.cos(t * 0.37 + i * 1.3) * 0.38, 0, Math.sin(t * 0.52 + i * 2.1) * 0.5);
+    }
+    for (const m of underglows) m.visible = on;
+    fireworks.visible = on;
+    if (!on) return;
+    for (let b = 0; b < FW_BURSTS; b++) {
+      const k = bursts[b];
+      k.age += dt;
+      const base = b * FW_SPARKS;
+      if (k.age > 2.2) {
+        // a new burst
+        const [fx, fz] = fwFocus ?? FW_SPOTS[Math.floor(Math.random() * FW_SPOTS.length)];
+        const spread = fwFocus ? 22 : 36;
+        k.x = fx + (Math.random() - 0.5) * spread;
+        k.z = fz + (Math.random() - 0.5) * spread;
+        k.y = terrain(fx, fz) + (fwFocus ? 14 + Math.random() * 8 : 26 + Math.random() * 14);
+        k.age = 0;
+        k.color.set(NEON[Math.floor(Math.random() * NEON.length)]);
+        for (let i = 0; i < FW_SPARKS; i++) {
+          const j = (base + i) * 3;
+          const u = Math.random() * 2 - 1;
+          const a = Math.random() * Math.PI * 2;
+          const r = Math.sqrt(1 - u * u);
+          const sp = 9 + Math.random() * 5;
+          fwVel[j] = Math.cos(a) * r * sp;
+          fwVel[j + 1] = u * sp;
+          fwVel[j + 2] = Math.sin(a) * r * sp;
+        }
+      }
+      const age = k.age;
+      const fade = Math.max(0, 1 - age / 1.9);
+      const drag = (1 - Math.exp(-age * 1.6)) / 1.6;
+      for (let i = 0; i < FW_SPARKS; i++) {
+        const j = (base + i) * 3;
+        fwPos[j] = k.x + fwVel[j] * drag;
+        fwPos[j + 1] = k.y + fwVel[j + 1] * drag - 4 * age * age;
+        fwPos[j + 2] = k.z + fwVel[j + 2] * drag;
+        const twinkle = fade * (0.7 + Math.random() * 0.3);
+        fwCol[j] = k.color.r * twinkle;
+        fwCol[j + 1] = k.color.g * twinkle;
+        fwCol[j + 2] = k.color.b * twinkle;
+      }
+    }
+    fwGeo.attributes.position.needsUpdate = true;
+    fwGeo.attributes.color.needsUpdate = true;
+  }
+  /** The film can pick its own hour (a night shot); null follows the clock as usual. */
+  let filmHour: number | null = null;
+
   const lookWant = new THREE.Vector3();
   const camAt = (x: number, z: number, lift: number) => camPos.set(x, Math.max(terrain(x, z), -0.6) + lift, z);
-  type Shot = { title: string; dur: number; fov: number; setup: () => void; cam: (u: number) => void };
+  type Shot = { title: string; dur: number; fov: number; hour?: number; setup: () => void; cam: (u: number) => void };
   const SHOTS: Shot[] = [
     {
       // alongside the leader, from the inland side so the sea fills the background
@@ -3279,6 +3423,142 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       },
     },
   ];
+
+  /** People walk in from both sides and stop by the parked rover to say hi. */
+  const greeters = (cx: number, cz: number, n: number) => {
+    for (let k = 0; k < Math.min(n, strollers.length); k++) {
+      const s = strollers[k];
+      const a = (k / n) * Math.PI * 2;
+      s.x = cx + Math.cos(a) * 14;
+      s.z = cz + Math.sin(a) * 14;
+      s.tx = cx + Math.cos(a) * 3.2;
+      s.tz = cz + Math.sin(a) * 3.2;
+      s.h = Math.atan2(s.tx - s.x, s.tz - s.z);
+      s.state = "walk";
+      s.wave = 0;
+      s.flee = 0;
+      s.stuck = 0;
+      s.speed = s.base;
+    }
+  };
+  const sheepCam: [number, number] = [0, 0];
+  const extraShots: Shot[] = [
+    {
+      // golden hour by a cottage: neighbours stroll past the door, windows warming up
+      title: "Home sweet home",
+      dur: 6.5,
+      fov: 44,
+      hour: 18.3,
+      setup: () => {
+        const h = homes[0] ?? { x: CENTERS[0].x, z: CENTERS[0].y + PLAZA + 12, face: 0 };
+        const fx = Math.sin(h.face);
+        const fz = Math.cos(h.face);
+        // park the rover out front; people walk up to it
+        driveFrom(h.x + fx * 8 + fz * 2, h.z + fz * 8 - fx * 2, h.face + Math.PI / 2, 0, 0, () => [car.x, car.z]);
+        greeters(car.x, car.z, 4);
+      },
+      cam: (u) => {
+        const h = homes[0] ?? { x: CENTERS[0].x, z: CENTERS[0].y + PLAZA + 12, face: 0 };
+        const fx = Math.sin(h.face);
+        const fz = Math.cos(h.face);
+        const side = -3 + u * 0.8;
+        camAt(h.x + fx * 17 + fz * side, h.z + fz * 17 - fx * side, 1.6);
+        lookWant.set(h.x + fx * 4, terrain(h.x, h.z) + 2, h.z + fz * 4);
+      },
+    },
+    {
+      // down at the fence: the rover rumbles past and the herd scatters
+      title: "Mind the sheep",
+      dur: 6,
+      fov: 42,
+      setup: () => {
+        const p = pens[0];
+        if (!p) return;
+        // a spot round the pen with a clear line of sight to the herd (trees have wide
+        // crowns, so keep well clear of their trunks; the pen's own thin posts don't count)
+        const blocked = (x: number, z: number) => colliders.some((c) => c.r >= 0.35 && Math.hypot(c.x - x, c.z - z) < c.r + 2.8);
+        const ring = Math.hypot(p.w / 2, p.d / 2) + 5;
+        const corners: Array<[number, number]> = Array.from({ length: 12 }, (_, k) => {
+          const a = (k / 12) * Math.PI * 2 + Math.PI / 4;
+          return [p.x + Math.cos(a) * ring, p.z + Math.sin(a) * ring];
+        });
+        const clearView = ([x, z]: [number, number]) => {
+          for (let f = 0; f <= 0.8; f += 0.16) if (blocked(x + (p.x - x) * f, z + (p.z - z) * f)) return false;
+          return true;
+        };
+        const pick = corners.find(clearView) ?? corners[0];
+        sheepCam[0] = pick[0];
+        sheepCam[1] = pick[1];
+        // the rover rumbles along the far side, so the herd is between it and us
+        const z = p.z + (pick[1] < p.z ? 1 : -1) * (p.d / 2 + 4);
+        const dir = pick[0] > p.x ? 1 : -1;
+        driveFrom(p.x - dir * 34, z, dir > 0 ? Math.PI / 2 : -Math.PI / 2, 6, 8, () => [car.x + dir * 10, z]);
+      },
+      cam: (u) => {
+        const p = pens[0];
+        if (!p) return;
+        // eye height above whichever is higher, the ground here or the pasture (no hillside in the lens)
+        const gy = Math.max(terrain(sheepCam[0], sheepCam[1]), terrain(p.x, p.z));
+        camPos.set(sheepCam[0], gy + 1.7 + u * 0.05, sheepCam[1]);
+        lookWant.set(p.x, terrain(p.x, p.z) + 0.9, p.z);
+      },
+    },
+    {
+      // night race: underglow on the asphalt, searchlights crossing over the start arch
+      title: "Night race",
+      dur: 6,
+      fov: 40,
+      hour: 21.5,
+      setup: () => {
+        placeRacers(S_START - 40, 9);
+        const q = loopAt(S_START + 26);
+        camAt(q.x - q.nx * (RING_HALF + 2.5), q.z - q.nz * (RING_HALF + 2.5), 1.2);
+        const a = loopAt(S_START - 20);
+        lookWant.set(a.x, 4, a.z);
+      },
+      cam: () => {
+        const p = racers[0].v.group.position;
+        const a = loopAt(S_START - 2);
+        lookWant.set((a.x + p.x) / 2, 3.5, (a.z + p.z) / 2);
+      },
+    },
+    {
+      // fireworks over the Day 1 plaza; people gather round the rover to watch
+      title: "Fireworks over the plaza",
+      dur: 7,
+      fov: 50,
+      hour: 21.8,
+      setup: () => {
+        const c = CENTERS[0];
+        fwFocus = [c.x, c.y];
+        for (const b of bursts) b.age = 2.2 - Math.random() * 0.8;
+        driveFrom(c.x + 6, c.y + 4, -Math.PI / 2, 0, 0, () => [car.x, car.z]);
+        greeters(c.x + 6, c.y + 4, 5);
+      },
+      cam: (u) => {
+        const c = CENTERS[0];
+        camAt(c.x + 18 - u * 0.6, c.y + 16, 1.4 + u * 0.15);
+        lookWant.set(c.x, terrain(c.x, c.y) + 9 + u * 1.5, c.y);
+      },
+    },
+    {
+      // the rover at night: headlights and nitro down the track, alongside at wheel height
+      title: "After dark",
+      dur: 6,
+      fov: 46,
+      hour: 22,
+      setup: () => driveFrom(0, 40, Math.PI, 14, 30, () => [0, car.z - 12]),
+      cam: (u) => {
+        const fx = Math.sin(car.heading);
+        const fz = Math.cos(car.heading);
+        const along = 2.5 - u * 0.5;
+        camAt(car.x + fz * 5.5 + fx * along, car.z - fx * 5.5 + fz * along, 1.1);
+        lookWant.set(car.x + fx * 3, car.y + 0.9, car.z + fz * 3);
+      },
+    },
+  ];
+  // Mix them in: day shots, a home and the animals, then the night block, then the finish
+  SHOTS.splice(4, 0, ...extraShots);
   const introOn = !reduced && racers.length > 0;
   let shotI = -1;
   let shotT = 0;
@@ -3287,21 +3567,28 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   let introFov = 46;
   let slow = 1;
   /** Advance the film by `dt`; returns the time step for the world (slow motion mid-jump). */
+  /** Test aid (?perf): keep the current shot on screen. */
+  let filmHold = false;
   function introUpdate(dt: number, t: number) {
-    shotT += dt;
+    if (!filmHold) shotT += dt;
     if (shotI < 0 || shotT >= SHOTS[shotI].dur) {
       shotI = (shotI + 1) % SHOTS.length;
       shotT = 0;
       auto.on = false;
       aim = null;
       const shot = SHOTS[shotI];
+      fwFocus = null;
       shot.setup();
+      if ((shot.hour ?? null) !== filmHour) {
+        filmHour = shot.hour ?? null;
+        applyTimeOfDay();
+      }
       snap = true;
       introFov = shot.fov;
       cb.onShot?.({ n: shotI, cut: ++cut, title: shot.title, seconds: shot.dur });
     }
     slow += ((auto.on && car.air ? 0.3 : 1) - slow) * Math.min(1, dt * 8);
-    const sdt = dt * slow;
+    const sdt = filmHold ? 0 : dt * slow;
     updateRacers(sdt, t);
     if (auto.on && aim) {
       const [ax, az] = aim();
@@ -3349,6 +3636,11 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     resetCones();
     nitroLevel = 0;
     nitro.visible = false;
+    fwFocus = null;
+    if (filmHour !== null) {
+      filmHour = null;
+      applyTimeOfDay();
+    }
     resetPlayer();
     // swoop down from above and behind into the driving view
     camera.position.set(car.x, car.y + 26, car.z + 34);
@@ -3627,7 +3919,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     return d.getUTCHours() + d.getUTCMinutes() / 60;
   };
   function applyTimeOfDay() {
-    const h = cycleSec ? (cycleFrom + ((performance.now() - cycleT0) / 1000 / cycleSec) * 24) % 24 : (forcedHour ?? liveHour());
+    const h = filmHour ?? (cycleSec ? (cycleFrom + ((performance.now() - cycleT0) / 1000 / cycleSec) * 24) % 24 : (forcedHour ?? liveHour()));
     shownHour = h;
     // 0 at night, 1 in full day; dusk peaks around sunrise and sunset.
     const day = smooth(5.2, 7.4, h) * (1 - smooth(17.2, 19.4, h));
@@ -4139,6 +4431,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       moteGeo.attributes.position.needsUpdate = true;
     }
     animateLife(t, dt);
+    animateNightLights(t, dt);
     for (const [i, c] of clouds.entries()) {
       c.position.x += dt * (0.6 + (i % 3) * 0.3);
       if (c.position.x > 190) c.position.x = -190;
@@ -4253,6 +4546,9 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
         shotI = (i - 1 + SHOTS.length) % SHOTS.length;
         shotT = 1e9;
         return SHOTS[i]?.title;
+      },
+      hold(on: boolean) {
+        filmHold = on;
       },
       film: () => ({ shotI, shotT: +shotT.toFixed(2), slow: +slow.toFixed(2), maxBend: +Math.max(...LOOP_K.map(Math.abs)).toFixed(4), drift: racers.map((r) => +r.drift.toFixed(2)), speed: racers.map((r) => +r.speed.toFixed(1)) }),
       state: () => ({ onLoop, nitroTank: +nitroTank.toFixed(3), x: +car.x.toFixed(1), z: +car.z.toFixed(1), speed: +car.speed.toFixed(1), mode }),
