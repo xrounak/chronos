@@ -14,8 +14,11 @@ export type ControlStyle = "joystick" | "dpad";
  */
 export function DPad({
   world,
+  locked = false,
 }: {
   world: React.RefObject<WorldHandle | null>;
+  /** A locked sprint lights the forward slice until the pad is touched again. */
+  locked?: boolean;
 }) {
   const pad = useRef<HTMLDivElement>(null);
   const pointer = useRef<number | null>(null);
@@ -70,7 +73,7 @@ export function DPad({
         {WEDGES.map((w, i) => {
           const a = i * 60;
           return (
-            <g key={w.label} className={`dpad-wedge ${w.main ? "is-main" : ""} ${cell === i ? "is-on" : ""}`}>
+            <g key={w.label} className={`dpad-wedge ${w.main ? "is-main" : ""} ${cell === i || (locked && cell === null && i === 0) ? "is-on" : ""}`}>
               <title>{w.label}</title>
               <path d={wedgePath(a - 30 + GAP, a + 30 - GAP)} />
               <path

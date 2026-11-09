@@ -16,17 +16,28 @@ function db() {
   return client;
 }
 
-export async function topRuns(limit = 10): Promise<Run[] | null> {
+export type RunSort = "time" | "nitro";
+
+type Row = { place: number; name: string; seconds: number | string; gears: number };
+const toRuns = (rows: Row[]): Run[] => rows.map((r) => ({ place: Number(r.place), name: r.name, seconds: Number(r.seconds), gears: r.gears }));
+
+/** The best runs: fastest first, or most nitro cans first (then fastest). */
+export async function topRuns(limit = 10, sort: RunSort = "time"): Promise<Run[] | null> {
   const c = db();
   if (!c) return null;
-  const { data, error } = await c.rpc("chronos_leaderboard", { p_limit: limit });
-  if (error) return null;
-  return (data as Array<{ place: number; name: string; seconds: number | string; gears: number }>).map((r) => ({
-    place: Number(r.place),
-    name: r.name,
-    seconds: Number(r.seconds),
-    gears: r.gears,
-  }));
+  if (sort === "time") {
+    const { data, error } = await c.rpc("chronos_leaderboard", { p_limit: limit });
+    return error ? null : toRuns(data as Row[]);
+  }
+  const { data, error } = await c.rpc("chronos_leaderboard_by", { p_sort: sort, p_limit: limit });
+  if (!error) return toRuns(data as Row[]);
+  // Database not updated yet: sort the top 50 by cans here instead
+  const fallback = await c.rpc("chronos_leaderboard", { p_limit: 50 });
+  if (fallback.error) return null;
+  return toRuns(fallback.data as Row[])
+    .sort((a, b) => b.gears - a.gears || a.seconds - b.seconds)
+    .slice(0, limit)
+    .map((r, i) => ({ ...r, place: i + 1 }));
 }
 
 const MESSAGES: Record<string, string> = {

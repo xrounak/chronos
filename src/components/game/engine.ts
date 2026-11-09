@@ -28,6 +28,10 @@ export type WorldCallbacks = {
   onGuide: (guide: { day: number; text: string } | null) => void;
   /** Called once if the game keeps running slowly on this device. */
   onSlow?: () => void;
+  /** The time trial starts: the first move after starting or going back to the start. */
+  onRunStart?: () => void;
+  /** Back to the start: the run, events visited and cans collected all go back to zero. */
+  onRunReset?: () => void;
   /** Driving or on foot, which vehicle, and whether a car is close enough to get in. */
   onMode?: (s: { mode: "drive" | "walk"; vehicle: "rover" | "supercar"; near: "rover" | "supercar" | null }) => void;
   /** A nitro can was picked up at this point on screen (CSS pixels, viewport); `tank` is the new level. */
@@ -1751,6 +1755,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   let lookPitch = 0;
   let driving = false;
   let started = false;
+  /** Waiting for the first move to start the time trial. */
+  let runArmed = false;
   let currentZone: number | null = null;
   let view = 0.35;
   /** Top speed multiplier from the menu (Chill / Normal / Fast). */
@@ -1787,9 +1793,12 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
   const clearKeys = () => keys.clear();
   window.addEventListener("blur", clearKeys);
 
+  /** Touch screen held sideways: use the low chase camera. */
+  let chaseCam = false;
   const resize = () => {
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
+    chaseCam = window.matchMedia("(pointer: coarse)").matches && w > h;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     baseFov = w < h ? 62 : 50;
@@ -2849,7 +2858,17 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       enterVehicle(roverV);
     }
     respawn();
+    resetRun();
   };
+  /** Cans back on the island, tank full, score to zero, clock waiting for the first move. */
+  function resetRun() {
+    for (const g of gears) g.taken = false;
+    collected = 0;
+    nitroTank = 1;
+    cb.onCollect(0, gears.length);
+    runArmed = true;
+    cb.onRunReset?.();
+  }
   function setLook(next: Partial<typeof look>) {
     Object.assign(look, next);
     skinMat.color.set(look.skin);
@@ -3194,6 +3213,11 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     // Driving (joystick held or a drive key down) brings the camera back behind the rover.
     driving = input.held || kUp + kDown + kLeft + kRight > 0;
     const steerIn = started ? Math.max(-1, Math.min(1, kLeft - kRight - input.x)) : 0;
+    // The time trial clock starts on the first move (a key, or a thumb on the stick)
+    if (runArmed && started && (throttle !== 0 || steerIn !== 0 || input.held)) {
+      runArmed = false;
+      cb.onRunStart?.();
+    }
     // Boost burns nitro; with an empty tank it does nothing until a can or the slow refill.
     // On foot Shift/boost means run; in a car it burns nitro
     const walking = mode === "walk";
@@ -3654,19 +3678,41 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       const yaw = car.heading + lookYaw;
       const fx = Math.sin(yaw);
       const fz = Math.cos(yaw);
-      // view: 0 = close behind the rover, 1 = high and far
-      const back = (mode === "walk" ? 4.5 + view * 12 : 8 + view * 20) + Math.abs(car.speed) * 0.2;
-      // Pitch swings the camera up over the rover (positive) or down towards the ground
-      const lift = (mode === "walk" ? 2.4 + view * 7 : 4.5 + view * 13) + Math.abs(car.speed) * 0.08 + lookPitch * (6 + view * 8);
-      camPos.set(car.x - fx * back, car.y + lift, car.z - fz * back);
-      const gh = terrain(camPos.x, camPos.z) + 2;
-      if (camPos.y < gh) camPos.y = gh;
-      camera.position.lerp(camPos, 1 - Math.pow(0.0025, dt));
-      fwd.set(car.x + fx * 4, car.y + 1.5, car.z + fz * 4);
-      camLook.lerp(fwd, 1 - Math.pow(0.0005, dt));
+      if (mode === "walk") {
+        // On foot: a free orbit round your head. Tilt down past the shoulders to look up at
+        // the whole sky, or up and over to look straight down at your feet.
+        const dist = 4 + view * 9;
+        const elev = Math.min(1.45, lookPitch + 0.18);
+        const ce = Math.cos(elev);
+        const head = car.y + 1.6;
+        camPos.set(car.x - fx * dist * ce, head + dist * Math.sin(elev), car.z - fz * dist * ce);
+        const gh = terrain(camPos.x, camPos.z) + 0.35;
+        if (camPos.y < gh) camPos.y = gh;
+        camera.position.lerp(camPos, 1 - Math.pow(0.0005, dt));
+        // looking up: aim well above the head so the sky fills the view
+        const up = elev < 0 ? -elev * dist * 1.6 : 0;
+        fwd.set(car.x + fx * 1.2, head + up, car.z + fz * 1.2);
+        camLook.lerp(fwd, 1 - Math.pow(0.0002, dt));
+      } else {
+        // Phones held sideways get a low chase camera that looks down the road, like driving
+        // games; elsewhere the higher view that shows more of the island.
+        const chase = chaseCam;
+        // view: 0 = close behind the car, 1 = high and far
+        const back = (chase ? 6.2 + view * 12 : 8 + view * 20) + Math.abs(car.speed) * (chase ? 0.12 : 0.2);
+        // Pitch swings the camera up over the car (positive) or down towards the ground
+        const lift = (chase ? 2.3 + view * 7 : 4.5 + view * 13) + Math.abs(car.speed) * (chase ? 0.03 : 0.08) + lookPitch * (6 + view * 8);
+        camPos.set(car.x - fx * back, car.y + lift, car.z - fz * back);
+        const gh = terrain(camPos.x, camPos.z) + (chase ? 1.2 : 2);
+        if (camPos.y < gh) camPos.y = gh;
+        camera.position.lerp(camPos, 1 - Math.pow(chase ? 0.0008 : 0.0025, dt));
+        const ahead = chase ? 9 : 4;
+        fwd.set(car.x + fx * ahead, car.y + (chase ? 1.2 : 1.5), car.z + fz * ahead);
+        camLook.lerp(fwd, 1 - Math.pow(0.0005, dt));
+      }
     }
     // Nitro widens the view a little, like the world rushing past
-    const fovWant = baseFov + nitroLevel * 9;
+    // wider on foot (see more sky and ground) and in the sideways chase view
+    const fovWant = baseFov + nitroLevel * 9 + (mode === "walk" ? 16 : chaseCam ? 8 : 0);
     if (Math.abs(camera.fov - fovWant) > 0.05) {
       camera.fov += (fovWant - camera.fov) * Math.min(1, dt * 6);
       camera.updateProjectionMatrix();
@@ -3784,6 +3830,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
     input,
     start() {
       started = true;
+      runArmed = true;
       canvas.focus?.();
     },
     teleport(id) {
@@ -3807,7 +3854,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       // On foot you can look around while walking (a second finger on the screen)
       if (!started || (input.held && mode !== "walk")) return;
       lookYaw = Math.atan2(Math.sin(lookYaw + yaw), Math.cos(lookYaw + yaw));
-      lookPitch = mode === "walk" ? Math.max(-0.7, Math.min(1.15, lookPitch + pitch)) : Math.max(-0.45, Math.min(0.9, lookPitch + pitch));
+      lookPitch = mode === "walk" ? Math.max(-1.35, Math.min(1.27, lookPitch + pitch)) : Math.max(-0.45, Math.min(0.9, lookPitch + pitch));
     },
     getSpeed: () => (mode === "walk" ? 0 : Math.min(1, Math.abs(car.speed) / (32 * speedScale))),
     getSprintLock: () => sprintLock,

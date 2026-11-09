@@ -7,11 +7,23 @@ import { ALL_EVENTS_URL } from "@/lib/events";
 import { FESTIVAL, FINAL_FRAME } from "@/lib/festival";
 import { CutLetters } from "@/components/Cutouts";
 import { RegisterDialog, SoundToggle } from "@/components/Controls";
-import { armSound, cue, getVolumes, setVolume, type VolumeKey } from "@/components/sound";
+import {
+  armSound,
+  cue,
+  getVolumes,
+  setVolume,
+  type VolumeKey,
+} from "@/components/sound";
 import { trackRegister } from "@/components/Tracked";
 import { Credit } from "@/components/Credit";
 import { festivalStatus, liveEventIds } from "@/lib/live";
-import { formatTime, submitRun, topRuns, type Run } from "@/lib/leaderboard";
+import {
+  formatTime,
+  submitRun,
+  topRuns,
+  type Run,
+  type RunSort,
+} from "@/lib/leaderboard";
 import type { WorldHandle, ZoneDef } from "./engine";
 import { startGameAudio } from "./audio";
 import { DPad, Guide, type ControlStyle } from "./Guide";
@@ -22,7 +34,12 @@ import { Customise, DEFAULT_LOOK } from "./Customise";
 import type { Look } from "./engine";
 import { InstallNudge } from "./InstallNudge";
 import { useInstall } from "@/components/install";
-import { canSharePhoto, composePhoto, downloadPhoto, sharePhoto } from "./photo";
+import {
+  canSharePhoto,
+  composePhoto,
+  downloadPhoto,
+  sharePhoto,
+} from "./photo";
 
 const DAY_COLORS = ["#f4b536", "#2453b3", "#e2452b"];
 const KIND: Record<string, string> = {
@@ -35,17 +52,42 @@ const KIND: Record<string, string> = {
   seminar: "Seminar",
 };
 const time = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }) : null;
+  iso
+    ? new Date(iso).toLocaleTimeString("en-IN", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "Asia/Kolkata",
+      })
+    : null;
 
-type Flat = ShowEvent & { id: number; day: number; dayTitle: string; dayNumber: string; date: string };
+type Flat = ShowEvent & {
+  id: number;
+  day: number;
+  dayTitle: string;
+  dayNumber: string;
+  date: string;
+};
 
 /** Countdown text, then "Day 2 is on" during the festival. */
 function useCountdown(days: ShowDay[]) {
-  const [left, setLeft] = useState<{ phase: string; text: string; short: string } | null>(null);
+  const [left, setLeft] = useState<{
+    phase: string;
+    text: string;
+    short: string;
+  } | null>(null);
   useEffect(() => {
     const tick = () => {
       const st = festivalStatus(days);
-      setLeft({ phase: st.phase, text: st.text, short: st.phase === "soon" ? st.text.replace(" to gates", "") : st.phase === "live" && "day" in st && st.day !== undefined ? `Day ${st.day + 1} is on` : "See you soon" });
+      setLeft({
+        phase: st.phase,
+        text: st.text,
+        short:
+          st.phase === "soon"
+            ? st.text.replace(" to gates", "")
+            : st.phase === "live" && "day" in st && st.day !== undefined
+              ? `Day ${st.day + 1} is on`
+              : "See you soon",
+      });
     };
     tick();
     const id = window.setInterval(tick, 15000);
@@ -55,6 +97,9 @@ function useCountdown(days: ShowDay[]) {
 }
 
 type GameAudio = ReturnType<typeof startGameAudio>;
+const NAME_KEY = "chronos-name";
+/** Seen the tutorial (bump the number when the tutorial changes a lot, to show it again). */
+const GUIDE_KEY = "chronos-guide-v2";
 
 const TIMES: Array<{ id: string; label: string; hour: number | null }> = [
   { id: "auto", label: "Live", hour: null },
@@ -76,7 +121,11 @@ const CYCLES = [
 type Quality = "auto" | "high" | "medium" | "low";
 const VOLUMES: Array<{ key: VolumeKey; label: string; hint?: string }> = [
   { key: "master", label: "Volume" },
-  { key: "music", label: "Music", hint: "Driving track in a car, a calm tune on foot" },
+  {
+    key: "music",
+    label: "Music",
+    hint: "Driving track in a car, a calm tune on foot",
+  },
   { key: "sfx", label: "Effects" },
   { key: "engine", label: "Engine" },
 ];
@@ -95,7 +144,31 @@ const clock = (h: number) => {
 };
 
 /** Touch joystick: drag anywhere in the pad; up is throttle, sideways steers. */
-function Joystick({ world }: { world: React.RefObject<WorldHandle | null> }) {
+/** 2–24 characters once trimmed, like the leaderboard asks. */
+const validName = (n: string) => {
+  const t = n.trim().replace(/\s+/g, " ");
+  return t.length >= 2 && t.length <= 24;
+};
+
+/** The run clock in the header: ticks on its own so the rest of the HUD doesn't re-render. */
+function RunClock({ since }: { since: React.RefObject<number | null> }) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(performance.now()), 100);
+    return () => clearInterval(id);
+  }, []);
+  const s =
+    since.current === null ? 0 : Math.max(0, (now - since.current) / 1000);
+  return <>{formatTime(s)}</>;
+}
+
+function Joystick({
+  world,
+  locked = false,
+}: {
+  world: React.RefObject<WorldHandle | null>;
+  locked?: boolean;
+}) {
   const pad = useRef<HTMLDivElement>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const [active, setActive] = useState(false);
@@ -130,7 +203,7 @@ function Joystick({ world }: { world: React.RefObject<WorldHandle | null> }) {
   return (
     <div
       ref={pad}
-      className={`joy ${active ? "is-active" : ""}`}
+      className={`joy ${active ? "is-active" : ""} ${locked && !active ? "is-locked" : ""}`}
       onPointerDown={(e) => {
         pointer.current = e.pointerId;
         setActive(true);
@@ -147,7 +220,12 @@ function Joystick({ world }: { world: React.RefObject<WorldHandle | null> }) {
       onPointerCancel={end}
       aria-hidden="true"
     >
-      <span style={{ transform: `translate(${knob.x * 70}%, ${knob.y * 70}%)` }} />
+      {/* a locked sprint holds the knob forward until the stick is touched again */}
+      <span
+        style={{
+          transform: `translate(${(locked && !active ? 0 : knob.x) * 70}%, ${(locked && !active ? -1 : knob.y) * 70}%)`,
+        }}
+      />
     </div>
   );
 }
@@ -160,19 +238,42 @@ export function World({ days }: { days: ShowDay[] }) {
   const customDialog = useRef<HTMLDialogElement>(null);
   const lastMode = useRef<"drive" | "walk">("drive");
   /** Driving or on foot, and whether a car is close enough to get into. */
-  const [drive, setDrive] = useState<{ mode: "drive" | "walk"; vehicle: "rover" | "supercar"; near: "rover" | "supercar" | null }>({ mode: "drive", vehicle: "rover", near: null });
+  const [drive, setDrive] = useState<{
+    mode: "drive" | "walk";
+    vehicle: "rover" | "supercar";
+    near: "rover" | "supercar" | null;
+  }>({ mode: "drive", vehicle: "rover", near: null });
   const [look, setLook] = useState<Look>(DEFAULT_LOOK);
   const [joyHeld, setJoyHeld] = useState(false);
+  const [sprintLock, setSprintLock] = useState(false);
+  /** Your name for the leaderboard, asked on the start screen and remembered. */
+  const [playerName, setPlayerName] = useState("");
+  const [runStarted, setRunStarted] = useState(false);
+  const [lbSort, setLbSort] = useState<RunSort>("time");
   const [canToggle, setCanToggle] = useState(true);
   const boardDialog = useRef<HTMLDialogElement>(null);
-  const [lb, setLb] = useState<{ state: "loading" | "ready" | "off"; runs: Run[] }>({ state: "loading", runs: [] });
+  const [lb, setLb] = useState<{
+    state: "loading" | "ready" | "off";
+    runs: Run[];
+  }>({ state: "loading", runs: [] });
 
   const events = useMemo<Flat[]>(() => {
     let id = 0;
-    return days.flatMap((d, day) => d.events.map((e) => ({ ...e, id: id++, day, dayTitle: d.title, dayNumber: d.number, date: d.date })));
+    return days.flatMap((d, day) =>
+      d.events.map((e) => ({
+        ...e,
+        id: id++,
+        day,
+        dayTitle: d.title,
+        dayNumber: d.number,
+        date: d.date,
+      })),
+    );
   }, [days]);
 
-  const [status, setStatus] = useState<"loading" | "ready" | "playing" | "nogl">("loading");
+  const [status, setStatus] = useState<
+    "loading" | "ready" | "playing" | "nogl"
+  >("loading");
   /** Loading steps for the progress bar: 0 code, 1 code ready, 2 fonts ready, 3 building, 4 done. */
   const [loadStep, setLoadStep] = useState(0);
   const [zone, setZone] = useState<number | null>(null);
@@ -189,7 +290,11 @@ export function World({ days }: { days: ShowDay[] }) {
   const [live, setLive] = useState<number[]>([]);
   const [slow, setSlow] = useState<"no" | "yes" | "dismissed">("no");
   const [photoBusy, setPhotoBusy] = useState(false);
-  const [photo, setPhoto] = useState<{ blob?: Blob; url?: string; share: boolean } | null>(null);
+  const [photo, setPhoto] = useState<{
+    blob?: Blob;
+    url?: string;
+    share: boolean;
+  } | null>(null);
   const [flash, setFlash] = useState(0);
   /** Which panel is open: the menu (things to do) or the settings. */
   const [panel, setPanel] = useState<"menu" | "settings" | null>(null);
@@ -201,7 +306,12 @@ export function World({ days }: { days: ShowDay[] }) {
   const [quality, setQuality] = useState<Quality>("auto");
   const [cycleLen, setCycleLen] = useState(300);
   const [gameHour, setGameHour] = useState(12);
-  const [vols, setVols] = useState<Record<VolumeKey, number>>({ master: 0.8, music: 0.7, sfx: 0.9, engine: 0.6 });
+  const [vols, setVols] = useState<Record<VolumeKey, number>>({
+    master: 0.8,
+    music: 0.7,
+    sfx: 0.9,
+    engine: 0.6,
+  });
   useEffect(() => setVols(getVolumes()), []);
   const [view, setView] = useState(0.35);
   const [timeMode, setTimeMode] = useState<string>("auto");
@@ -213,7 +323,11 @@ export function World({ days }: { days: ShowDay[] }) {
   const [finishSec, setFinishSec] = useState<number | null>(null);
   const [board, setBoard] = useState<Run[] | null>(null);
   const [runName, setRunName] = useState("");
-  const [runState, setRunState] = useState<{ place?: number; error?: string; busy?: boolean }>({});
+  const [runState, setRunState] = useState<{
+    place?: number;
+    error?: string;
+    busy?: boolean;
+  }>({});
   const startedAt = useRef<number | null>(null);
   const [assisted, setAssisted] = useState(false);
   const audio = useRef<GameAudio | null>(null);
@@ -229,11 +343,22 @@ export function World({ days }: { days: ShowDay[] }) {
       return;
     }
     // Wait for the web fonts: the 3D signs are drawn with them once.
-    const engineCode = import("./engine").then((m) => (setLoadStep((s) => Math.max(s, 1)), m));
-    const fonts = (document.fonts?.ready ?? Promise.resolve()).catch(() => undefined).then(() => setLoadStep((s) => Math.max(s, 2)));
+    const engineCode = import("./engine").then(
+      (m) => (setLoadStep((s) => Math.max(s, 1)), m),
+    );
+    const fonts = (document.fonts?.ready ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => setLoadStep((s) => Math.max(s, 2)));
     Promise.all([engineCode, fonts])
       // Show "building" for a frame before the (blocking) build starts
-      .then(([m]) => (setLoadStep(3), new Promise<typeof m>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res(m))))))
+      .then(
+        ([m]) => (
+          setLoadStep(3),
+          new Promise<typeof m>((res) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => res(m))),
+          )
+        ),
+      )
       .then(({ startWorld }) => {
         if (cancelled || !canvas.current) return;
         const zones: ZoneDef[] = events.map((e) => ({
@@ -254,6 +379,22 @@ export function World({ days }: { days: ShowDay[] }) {
           onCollect: (n, total) => {
             if (n > 0) cue("shimmer");
             setGears({ n, total });
+          },
+          // The clock starts on the first move, not on the start button
+          onRunStart: () => {
+            startedAt.current = performance.now();
+            setRunStarted(true);
+          },
+          // Back to the start: a fresh run
+          onRunReset: () => {
+            startedAt.current = null;
+            setRunStarted(false);
+            setVisited(new Set());
+            setFinishSec(null);
+            setRunState({});
+            setAssisted(false);
+            setBoard(null);
+            setFinale("hidden");
           },
           onReady: () => {
             setLoadStep(4);
@@ -281,10 +422,15 @@ export function World({ days }: { days: ShowDay[] }) {
 
   // Every event visited: the final frame, with the time trial result.
   useEffect(() => {
-    if (finale === "hidden" && events.length > 0 && visited.size === events.length) {
+    if (
+      finale === "hidden" &&
+      events.length > 0 &&
+      visited.size === events.length
+    ) {
       setFinale("shown");
       cue("boom");
-      if (startedAt.current !== null) setFinishSec((performance.now() - startedAt.current) / 1000);
+      if (startedAt.current !== null)
+        setFinishSec((performance.now() - startedAt.current) / 1000);
       void topRuns(10).then(setBoard);
     }
   }, [visited, events.length, finale]);
@@ -324,10 +470,18 @@ export function World({ days }: { days: ShowDay[] }) {
         setJoyHeld((p) => (p === held ? p : held));
         const ok = w.canToggle();
         setCanToggle((p) => (p === ok ? p : ok));
+        const lock = w.getSprintLock();
+        setSprintLock((p) => (p === lock ? p : lock));
       }
       // Nitro meter for the HUD (only re-render when it visibly changes)
       const n = world.current?.getNitro() ?? 1;
-      setNitro((prev) => (Math.abs(prev - n) > 0.01 || (n === 1 && prev !== 1) || (n === 0 && prev !== 0) ? n : prev));
+      setNitro((prev) =>
+        Math.abs(prev - n) > 0.01 ||
+        (n === 1 && prev !== 1) ||
+        (n === 0 && prev !== 0)
+          ? n
+          : prev,
+      );
     }, 120);
     return () => {
       clearInterval(id);
@@ -344,10 +498,13 @@ export function World({ days }: { days: ShowDay[] }) {
   const start = useCallback(() => {
     cue("click");
     world.current?.start();
-    startedAt.current ??= performance.now();
     setStatus("playing");
-    // Babu's tutorial opens every time the game starts.
-    setGuideOpen(true);
+    // Babu's tutorial opens the first time only (How to play in the menu brings it back)
+    try {
+      if (localStorage.getItem(GUIDE_KEY) !== "1") setGuideOpen(true);
+    } catch {
+      setGuideOpen(true);
+    }
   }, []);
 
   // Joystick or arrow buttons, remembered on this device
@@ -374,8 +531,16 @@ export function World({ days }: { days: ShowDay[] }) {
       const shot = world.current.snapshot();
       setFlash((n) => n + 1);
       setPhoto({ share: false });
-      const blob = await composePhoto(shot, { events: visited.size, total: events.length, gears: gears.n });
-      setPhoto({ blob, url: URL.createObjectURL(blob), share: canSharePhoto(blob) });
+      const blob = await composePhoto(shot, {
+        events: visited.size,
+        total: events.length,
+        gears: gears.n,
+      });
+      setPhoto({
+        blob,
+        url: URL.createObjectURL(blob),
+        share: canSharePhoto(blob),
+      });
       cue("shimmer");
     } catch (err) {
       console.warn("Chronos photo failed", err);
@@ -389,7 +554,17 @@ export function World({ days }: { days: ShowDay[] }) {
     setPanel(null);
     setLb((v) => ({ ...v, state: "loading" }));
     boardDialog.current?.showModal();
-    void topRuns(20).then((runs) => setLb(runs ? { state: "ready", runs } : { state: "off", runs: [] }));
+    void topRuns(20, lbSort).then((runs) =>
+      setLb(runs ? { state: "ready", runs } : { state: "off", runs: [] }),
+    );
+  };
+  const sortBoard = (sort: RunSort) => {
+    cue("click");
+    setLbSort(sort);
+    setLb((v) => ({ ...v, state: "loading" }));
+    void topRuns(20, sort).then((runs) =>
+      setLb(runs ? { state: "ready", runs } : { state: "off", runs: [] }),
+    );
   };
 
   const closePhoto = () => {
@@ -401,7 +576,8 @@ export function World({ days }: { days: ShowDay[] }) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem("chronos-look");
-      if (raw) setLook({ ...DEFAULT_LOOK, ...(JSON.parse(raw) as Partial<Look>) });
+      if (raw)
+        setLook({ ...DEFAULT_LOOK, ...(JSON.parse(raw) as Partial<Look>) });
     } catch {}
   }, []);
   useEffect(() => {
@@ -416,7 +592,8 @@ export function World({ days }: { days: ShowDay[] }) {
   useEffect(() => {
     try {
       const v = Number(localStorage.getItem("chronos-view"));
-      if (localStorage.getItem("chronos-view") !== null && Number.isFinite(v)) setView(v);
+      if (localStorage.getItem("chronos-view") !== null && Number.isFinite(v))
+        setView(v);
     } catch {}
   }, []);
   useEffect(() => {
@@ -440,7 +617,11 @@ export function World({ days }: { days: ShowDay[] }) {
     else {
       world.current?.setDayCycle(null);
       // ?hour=21 in the address still previews a time while the menu says Live
-      if (timeMode !== "auto" || !new URLSearchParams(window.location.search).has("hour")) world.current?.setTime(t?.hour ?? null);
+      if (
+        timeMode !== "auto" ||
+        !new URLSearchParams(window.location.search).has("hour")
+      )
+        world.current?.setTime(t?.hour ?? null);
     }
     try {
       localStorage.setItem("chronos-time", timeMode);
@@ -478,7 +659,8 @@ export function World({ days }: { days: ShowDay[] }) {
     try {
       const raw = localStorage.getItem("chronos-look");
       const v = Number(raw);
-      if (raw !== null && Number.isFinite(v)) setLookSens(Math.min(1, Math.max(0, v)));
+      if (raw !== null && Number.isFinite(v))
+        setLookSens(Math.min(1, Math.max(0, v)));
     } catch {}
   }, []);
   useEffect(() => {
@@ -490,7 +672,12 @@ export function World({ days }: { days: ShowDay[] }) {
   // Drag on the 3D view (mouse or finger) to look around. Off while the joystick is held.
   const onLookDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     // On foot the view can be turned while the joystick is in use; in a car it can't
-    if (status !== "playing" || lookDrag.current || (world.current?.input.held && drive.mode !== "walk")) return;
+    if (
+      status !== "playing" ||
+      lookDrag.current ||
+      (world.current?.input.held && drive.mode !== "walk")
+    )
+      return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     lookDrag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
     try {
@@ -520,7 +707,11 @@ export function World({ days }: { days: ShowDay[] }) {
   useEffect(() => {
     try {
       const v = Number(localStorage.getItem("chronos-speed"));
-      if (localStorage.getItem("chronos-speed") !== null && [0, 1, 2].includes(v)) setSpeedLevel(v);
+      if (
+        localStorage.getItem("chronos-speed") !== null &&
+        [0, 1, 2].includes(v)
+      )
+        setSpeedLevel(v);
     } catch {}
   }, []);
   useEffect(() => {
@@ -551,11 +742,50 @@ export function World({ days }: { days: ShowDay[] }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
-    const postRun = async (e: React.FormEvent) => {
+  // Your name, remembered on this device
+  useEffect(() => {
+    try {
+      const n = localStorage.getItem(NAME_KEY) ?? "";
+      setPlayerName(n);
+      setRunName(n);
+    } catch {}
+  }, []);
+
+  // Finished: post the run straight away under your name (the form is only a fallback)
+  useEffect(() => {
+    if (
+      finishSec === null ||
+      assisted ||
+      runState.place ||
+      runState.busy ||
+      runState.error
+    )
+      return;
+    if (!validName(playerName)) {
+      setRunName(playerName);
+      return;
+    }
+    setRunState({ busy: true });
+    void submitRun(playerName.trim(), finishSec, gears.n).then((res) => {
+      if ("error" in res) setRunState({ error: res.error });
+      else {
+        setRunState({ place: res.place });
+        void topRuns(10).then(setBoard);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finishSec]);
+
+  const postRun = async (e: React.FormEvent) => {
     e.preventDefault();
     if (finishSec === null || runState.busy || runState.place) return;
     setRunState({ busy: true });
     const res = await submitRun(runName, finishSec, gears.n);
+    // remember it for next time
+    setPlayerName(runName);
+    try {
+      localStorage.setItem(NAME_KEY, runName.trim());
+    } catch {}
     if ("error" in res) setRunState({ error: res.error });
     else {
       setRunState({ place: res.place });
@@ -625,16 +855,35 @@ export function World({ days }: { days: ShowDay[] }) {
         </button>
 
         {panel === "menu" && (
-          <div id="game-menu" className="game-menu hud-menu" role="menu" aria-label="Menu">
+          <div
+            id="game-menu"
+            className="game-menu hud-menu"
+            role="menu"
+            aria-label="Menu"
+          >
             <p className="menu-head">Play</p>
-            <button type="button" role="menuitem" className="menu-item" onClick={() => (cue("click"), setPanel(null), mapDialog.current?.showModal())}>
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => (
+                cue("click"),
+                setPanel(null),
+                mapDialog.current?.showModal()
+              )}
+            >
               <span>All events · fast travel</span>
               <span className="menu-ico">
                 <Icon name="list" />
                 <kbd>M</kbd>
               </span>
             </button>
-            <button type="button" role="menuitem" className="menu-item" onClick={openBoard}>
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={openBoard}
+            >
               <span>Leaderboard</span>
               <Icon name="trophy" className="menu-ico" />
             </button>
@@ -651,7 +900,13 @@ export function World({ days }: { days: ShowDay[] }) {
               <span>Customise you &amp; your cars</span>
               <Icon name="bolt" className="menu-ico" />
             </button>
-            <button type="button" role="menuitem" className="menu-item" onClick={takePhoto} disabled={photoBusy}>
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={takePhoto}
+              disabled={photoBusy}
+            >
               <span>Capture a photo</span>
               <Icon name="camera" className="menu-ico" />
             </button>
@@ -700,8 +955,15 @@ export function World({ days }: { days: ShowDay[] }) {
                 else setInstallAsk((n) => n + 1);
               }}
             >
-              <span>{install.installed ? "Installed on this device" : "Install on this device"}</span>
-              <Icon name={install.installed ? "check" : "download"} className="menu-ico" />
+              <span>
+                {install.installed
+                  ? "Installed on this device"
+                  : "Install on this device"}
+              </span>
+              <Icon
+                name={install.installed ? "check" : "download"}
+                className="menu-ico"
+              />
             </button>
             <Link href="/lite" role="menuitem" className="menu-item">
               <span>Lite version</span>
@@ -714,11 +976,20 @@ export function World({ days }: { days: ShowDay[] }) {
         )}
 
         {panel === "settings" && (
-          <div id="game-settings" className="game-menu hud-menu" role="dialog" aria-label="Settings">
+          <div
+            id="game-settings"
+            className="game-menu hud-menu"
+            role="dialog"
+            aria-label="Settings"
+          >
             <p className="menu-head">Driving</p>
             <div className="menu-item menu-slider">
               <span>Speed</span>
-              <span className="time-pick speed-pick" role="radiogroup" aria-label="Rover speed">
+              <span
+                className="time-pick speed-pick"
+                role="radiogroup"
+                aria-label="Rover speed"
+              >
                 {["Chill", "Normal", "Fast"].map((label, i) => (
                   <button
                     key={label}
@@ -739,9 +1010,20 @@ export function World({ days }: { days: ShowDay[] }) {
             {touch && (
               <div className="menu-item menu-slider">
                 <span>Touch controls</span>
-                <span className="time-pick speed-pick ctrl-pick" role="radiogroup" aria-label="Touch controls">
+                <span
+                  className="time-pick speed-pick ctrl-pick"
+                  role="radiogroup"
+                  aria-label="Touch controls"
+                >
                   {(["joystick", "dpad"] as const).map((c) => (
-                    <button key={c} type="button" role="radio" aria-checked={controls === c} className={controls === c ? "is-on" : ""} onClick={() => pickControls(c)}>
+                    <button
+                      key={c}
+                      type="button"
+                      role="radio"
+                      aria-checked={controls === c}
+                      className={controls === c ? "is-on" : ""}
+                      onClick={() => pickControls(c)}
+                    >
                       {c === "joystick" ? "Joystick" : "Arrows"}
                     </button>
                   ))}
@@ -759,7 +1041,10 @@ export function World({ days }: { days: ShowDay[] }) {
               }}
             >
               <span>Guide arrow</span>
-              <span className={`switch ${arrowOn ? "is-on" : ""}`} aria-hidden="true">
+              <span
+                className={`switch ${arrowOn ? "is-on" : ""}`}
+                aria-hidden="true"
+              >
                 <i />
               </span>
             </button>
@@ -768,17 +1053,43 @@ export function World({ days }: { days: ShowDay[] }) {
             <label className="menu-item menu-slider">
               <span className="flex w-full justify-between">
                 <span>Distance</span>
-                <span className="opacity-60">{view < 0.25 ? "Close" : view > 0.7 ? "Far" : "Normal"}</span>
+                <span className="opacity-60">
+                  {view < 0.25 ? "Close" : view > 0.7 ? "Far" : "Normal"}
+                </span>
               </span>
-              <input type="range" min={0} max={1} step={0.01} value={view} onChange={(e) => setView(Number(e.target.value))} aria-label="Camera distance" />
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={view}
+                onChange={(e) => setView(Number(e.target.value))}
+                aria-label="Camera distance"
+              />
             </label>
             <label className="menu-item menu-slider">
               <span className="flex w-full justify-between">
                 <span>Look sensitivity</span>
-                <span className="opacity-60">{lookSens < 0.34 ? "Low" : lookSens > 0.66 ? "High" : "Medium"}</span>
+                <span className="opacity-60">
+                  {lookSens < 0.34
+                    ? "Low"
+                    : lookSens > 0.66
+                      ? "High"
+                      : "Medium"}
+                </span>
               </span>
-              <input type="range" min={0} max={1} step={0.01} value={lookSens} onChange={(e) => setLookSens(Number(e.target.value))} aria-label="Look sensitivity" />
-              <span className="menu-hint">Drag the view to look around · drive to snap back</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={lookSens}
+                onChange={(e) => setLookSens(Number(e.target.value))}
+                aria-label="Look sensitivity"
+              />
+              <span className="menu-hint">
+                Drag the view to look around · drive to snap back
+              </span>
             </label>
 
             <p className="menu-head">World</p>
@@ -787,7 +1098,11 @@ export function World({ days }: { days: ShowDay[] }) {
                 <span>Time of day</span>
                 <span className="opacity-60 tabular">{clock(gameHour)}</span>
               </span>
-              <span className="time-pick time-pick-6" role="radiogroup" aria-label="Time of day">
+              <span
+                className="time-pick time-pick-6"
+                role="radiogroup"
+                aria-label="Time of day"
+              >
                 {TIMES.map((t) => (
                   <button
                     key={t.id}
@@ -799,7 +1114,13 @@ export function World({ days }: { days: ShowDay[] }) {
                       cue("click");
                       setTimeMode(t.id);
                     }}
-                    title={t.id === "auto" ? "Follows the real time in India" : t.id === "cycle" ? "Plays a whole day while you drive" : undefined}
+                    title={
+                      t.id === "auto"
+                        ? "Follows the real time in India"
+                        : t.id === "cycle"
+                          ? "Plays a whole day while you drive"
+                          : undefined
+                    }
                   >
                     {t.label}
                   </button>
@@ -807,8 +1128,14 @@ export function World({ days }: { days: ShowDay[] }) {
               </span>
               {timeMode === "cycle" && (
                 <>
-                  <span className="menu-hint">A whole day, sunrise to night, every:</span>
-                  <span className="time-pick pick-4" role="radiogroup" aria-label="Day length">
+                  <span className="menu-hint">
+                    A whole day, sunrise to night, every:
+                  </span>
+                  <span
+                    className="time-pick pick-4"
+                    role="radiogroup"
+                    aria-label="Day length"
+                  >
                     {CYCLES.map((c) => (
                       <button
                         key={c.sec}
@@ -833,9 +1160,15 @@ export function World({ days }: { days: ShowDay[] }) {
             <div className="menu-item menu-slider">
               <span className="flex w-full justify-between">
                 <span>Resolution</span>
-                <span className="opacity-60">{QUALITY.find((q) => q.id === quality)?.hint}</span>
+                <span className="opacity-60">
+                  {QUALITY.find((q) => q.id === quality)?.hint}
+                </span>
               </span>
-              <span className="time-pick pick-4" role="radiogroup" aria-label="Resolution">
+              <span
+                className="time-pick pick-4"
+                role="radiogroup"
+                aria-label="Resolution"
+              >
                 {QUALITY.map((q) => (
                   <button
                     key={q.id}
@@ -861,7 +1194,9 @@ export function World({ days }: { days: ShowDay[] }) {
               <label key={v.key} className="menu-item menu-slider">
                 <span className="flex w-full justify-between">
                   <span>{v.label}</span>
-                  <span className="opacity-60 tabular">{Math.round(vols[v.key] * 100)}%</span>
+                  <span className="opacity-60 tabular">
+                    {Math.round(vols[v.key] * 100)}%
+                  </span>
                 </span>
                 <input
                   type="range"
@@ -884,36 +1219,70 @@ export function World({ days }: { days: ShowDay[] }) {
         <header className="hud-header">
           <p className="hud-logo" aria-label={`Chronos ${FESTIVAL.year}`}>
             {"CHRONOS".split("").map((ch, i) => (
-              <span key={i} style={{ animationDelay: `${i * -0.7}s` }} aria-hidden="true">
+              <span
+                key={i}
+                style={{ animationDelay: `${i * -0.7}s` }}
+                aria-hidden="true"
+              >
                 {ch}
               </span>
             ))}
           </p>
           <div className="hud-stats">
-            {countdown && (
-              <span className="stat">
-                <small>{countdown.phase === "soon" ? "Gates in" : "Chronos"}</small>
-                <b>{countdown.short}</b>
+            {runStarted && finale === "hidden" ? (
+              <span className="stat stat-clock">
+                <small>Your time</small>
+                <b>
+                  <RunClock since={startedAt} />
+                </b>
               </span>
+            ) : (
+              countdown && (
+                <span className="stat">
+                  <small>
+                    {countdown.phase === "soon" ? "Gates in" : "Chronos"}
+                  </small>
+                  <b>{countdown.short}</b>
+                </span>
+              )
             )}
-            <span className="stat" aria-label={`${visited.size} of ${events.length} events visited`}>
+            <span
+              className="stat"
+              aria-label={`${visited.size} of ${events.length} events visited`}
+            >
               <small>Events</small>
               <b>
                 <span className="flex gap-[3px]" aria-hidden="true">
                   {[0, 1, 2].map((d) => {
                     const all = events.filter((e) => e.day === d);
-                    const done = all.length > 0 && all.every((e) => visited.has(e.id));
-                    return <i key={d} className="day-pip" style={{ background: done ? DAY_COLORS[d] : "transparent", borderColor: DAY_COLORS[d] }} />;
+                    const done =
+                      all.length > 0 && all.every((e) => visited.has(e.id));
+                    return (
+                      <i
+                        key={d}
+                        className="day-pip"
+                        style={{
+                          background: done ? DAY_COLORS[d] : "transparent",
+                          borderColor: DAY_COLORS[d],
+                        }}
+                      />
+                    );
                   })}
                 </span>
                 {visited.size}/{events.length}
               </b>
             </span>
-            <span className="stat stat-nitro" aria-label={`Nitro ${Math.round(nitro * 100)} percent, ${gears.n} cans collected`}>
+            <span
+              className="stat stat-nitro"
+              aria-label={`Nitro ${Math.round(nitro * 100)} percent, ${gears.n} cans collected`}
+            >
               <small>Nitro</small>
               <b>
                 <Icon name="nitro" className="stat-ico" />
-                <span className={`nitro-bar ${nitro < 0.02 ? "is-empty" : ""}`} aria-hidden="true">
+                <span
+                  className={`nitro-bar ${nitro < 0.02 ? "is-empty" : ""}`}
+                  aria-hidden="true"
+                >
                   <i style={{ width: `${Math.round(nitro * 100)}%` }} />
                 </span>
               </b>
@@ -921,7 +1290,15 @@ export function World({ days }: { days: ShowDay[] }) {
           </div>
         </header>
 
-        <canvas ref={minimap} width={220} height={220} className="hud-map" aria-label="Open the event list" role="button" onClick={() => mapDialog.current?.showModal()} />
+        <canvas
+          ref={minimap}
+          width={220}
+          height={220}
+          className="hud-map"
+          aria-label="Open the event list"
+          role="button"
+          onClick={() => mapDialog.current?.showModal()}
+        />
 
         {slow === "yes" && (
           <div className="slow-card">
@@ -930,7 +1307,11 @@ export function World({ days }: { days: ShowDay[] }) {
               <Link href="/lite" className="chip chip-solid">
                 Lite version →
               </Link>
-              <button type="button" className="chip" onClick={() => setSlow("dismissed")}>
+              <button
+                type="button"
+                className="chip"
+                onClick={() => setSlow("dismissed")}
+              >
                 Keep playing
               </button>
             </div>
@@ -938,22 +1319,54 @@ export function World({ days }: { days: ShowDay[] }) {
         )}
 
         {current && (
-          <article className="zone-card" style={{ ["--day" as string]: DAY_COLORS[current.day] }} aria-live="polite">
+          <article
+            className="zone-card"
+            style={{ ["--day" as string]: DAY_COLORS[current.day] }}
+            aria-live="polite"
+          >
             {current.photo && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={`/photos/${current.photo}`} alt="" className="zone-photo" />
+              <img
+                src={`/photos/${current.photo}`}
+                alt=""
+                className="zone-photo"
+              />
             )}
             <div className="min-w-0 flex-1">
               <p className="label text-[0.6rem]">
-                {live.includes(current.id) && <span className="live-badge">Live now</span>}
-                Day {current.dayNumber} <span className="max-sm:hidden">· {current.dayTitle}</span> · {KIND[current.kind] ?? "Event"}
+                {live.includes(current.id) && (
+                  <span className="live-badge">Live now</span>
+                )}
+                Day {current.dayNumber}{" "}
+                <span className="max-sm:hidden">· {current.dayTitle}</span> ·{" "}
+                {KIND[current.kind] ?? "Event"}
               </p>
-              <h2 className="zone-name font-display mt-1 font-black uppercase leading-tight">{current.name}</h2>
-              <p className="label mt-1 text-[0.6rem] opacity-70">{[current.venue, current.date.split(" · ")[0], time(current.startsAt), current.team].filter(Boolean).join(" · ")}</p>
-              {current.summary && <p className="mt-2 line-clamp-2 text-sm leading-snug">{current.summary}</p>}
+              <h2 className="zone-name font-display mt-1 font-black uppercase leading-tight">
+                {current.name}
+              </h2>
+              <p className="label mt-1 text-[0.6rem] opacity-70">
+                {[
+                  current.venue,
+                  current.date.split(" · ")[0],
+                  time(current.startsAt),
+                  current.team,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              {current.summary && (
+                <p className="mt-2 line-clamp-2 text-sm leading-snug">
+                  {current.summary}
+                </p>
+              )}
             </div>
             {current.detailsUrl && (
-              <a className="chip zone-details" href={current.detailsUrl} target="_blank" rel="noopener noreferrer">
+              <a
+                className="chip zone-details"
+                href={current.detailsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Rule book
               </a>
             )}
@@ -993,7 +1406,9 @@ export function World({ days }: { days: ShowDay[] }) {
                   {Math.round(nitro * 100)}
                   <small>%</small>
                 </span>
-                <span className="nitro-dial-label">{nitro < 0.02 ? "Empty" : nitro > 0.99 ? "Full" : "Nitro"}</span>
+                <span className="nitro-dial-label">
+                  {nitro < 0.02 ? "Empty" : nitro > 0.99 ? "Full" : "Nitro"}
+                </span>
               </span>
             </span>
             <span className="nitro-dial-hint">
@@ -1002,27 +1417,39 @@ export function World({ days }: { days: ShowDay[] }) {
           </div>
         )}
         {/* desktop only: phones already show the DRIVE button */}
-        {status === "playing" && !touch && drive.mode === "walk" && drive.near && (
-          <div className="mode-prompt" role="status">
-            Press <kbd>F</kbd> to drive the {drive.near === "rover" ? "rover" : "supercar"}
-          </div>
-        )}
+        {status === "playing" &&
+          !touch &&
+          drive.mode === "walk" &&
+          drive.near && (
+            <div className="mode-prompt" role="status">
+              Press <kbd>F</kbd> to drive the{" "}
+              {drive.near === "rover" ? "rover" : "supercar"}
+            </div>
+          )}
         {!touch && !current && (
           <p className="hud-help label">
             {drive.mode === "drive" ? (
               <>
-                <kbd>W A S D</kbd> drive · <kbd>Shift</kbd> boost · <kbd>Space</kbd> brake · <kbd>F</kbd> get out · <kbd>R</kbd> reset
+                <kbd>W A S D</kbd> drive · <kbd>Shift</kbd> boost ·{" "}
+                <kbd>Space</kbd> brake · <kbd>F</kbd> get out · <kbd>R</kbd>{" "}
+                reset
               </>
             ) : (
               <>
-                <kbd>W A S D</kbd> walk · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump · <kbd>F</kbd> get in a car · <kbd>R</kbd> back to the rover
+                <kbd>W A S D</kbd> walk · <kbd>Shift</kbd> run ·{" "}
+                <kbd>Space</kbd> jump · <kbd>F</kbd> get in a car · <kbd>R</kbd>{" "}
+                back to the rover
               </>
             )}
           </p>
         )}
         {touch && (
           <>
-            {controls === "dpad" ? <DPad world={world} /> : <Joystick world={world} />}
+            {controls === "dpad" ? (
+              <DPad world={world} locked={sprintLock} />
+            ) : (
+              <Joystick world={world} locked={sprintLock} />
+            )}
             {(drive.mode === "drive" || drive.near) && (
               <button
                 type="button"
@@ -1058,15 +1485,25 @@ export function World({ days }: { days: ShowDay[] }) {
                 className={`boost ${nitro < 0.02 ? "is-empty" : nitro > 0.99 ? "is-full" : ""}`}
                 style={{ ["--nitro" as string]: nitro }}
                 aria-label={`Nitro boost, ${Math.round(nitro * 100)} percent`}
-                onPointerDown={() => world.current && (world.current.input.boost = true)}
-                onPointerUp={() => world.current && (world.current.input.boost = false)}
-                onPointerCancel={() => world.current && (world.current.input.boost = false)}
-                onPointerLeave={() => world.current && (world.current.input.boost = false)}
+                onPointerDown={() =>
+                  world.current && (world.current.input.boost = true)
+                }
+                onPointerUp={() =>
+                  world.current && (world.current.input.boost = false)
+                }
+                onPointerCancel={() =>
+                  world.current && (world.current.input.boost = false)
+                }
+                onPointerLeave={() =>
+                  world.current && (world.current.input.boost = false)
+                }
               >
                 <span className="boost-ring" aria-hidden="true" />
                 <span className="boost-face">
                   <Icon name="nitro" className="boost-ico" />
-                  <span className="boost-label">{nitro < 0.02 ? "Empty" : "Nitro"}</span>
+                  <span className="boost-label">
+                    {nitro < 0.02 ? "Empty" : "Nitro"}
+                  </span>
                   <span className="boost-pct">{Math.round(nitro * 100)}%</span>
                 </span>
               </button>
@@ -1076,7 +1513,16 @@ export function World({ days }: { days: ShowDay[] }) {
       </div>
 
       {status === "playing" && (
-        <InstallNudge busy={guideOpen || menuOpen || zone !== null || finale === "shown" || photo !== null} request={installAsk} />
+        <InstallNudge
+          busy={
+            guideOpen ||
+            menuOpen ||
+            zone !== null ||
+            finale === "shown" ||
+            photo !== null
+          }
+          request={installAsk}
+        />
       )}
 
       {guideOpen && status === "playing" && !menuOpen && (
@@ -1088,6 +1534,9 @@ export function World({ days }: { days: ShowDay[] }) {
           onClose={() => {
             cue("click");
             setGuideOpen(false);
+            try {
+              localStorage.setItem(GUIDE_KEY, "1");
+            } catch {}
           }}
         />
       )}
@@ -1104,46 +1553,96 @@ export function World({ days }: { days: ShowDay[] }) {
           <p className="start-note start-note-b" aria-hidden="true">
             {events.length} events · 3 days · 1 island
           </p>
-          <p className="label text-[0.62rem] sm:text-xs">Science &amp; Innovation Club · GEC Palamu presents</p>
+          <p className="label text-[0.62rem] sm:text-xs">
+            Science &amp; Innovation Club · GEC Palamu presents
+          </p>
           <h1 className="sr-only">CHRONOS {FESTIVAL.year}</h1>
-          <CutLetters text={FESTIVAL.name} className="text-[clamp(2.6rem,11vw,8.5rem)]" />
-          <p className="display paper-strip text-sm tracking-[0.26em] sm:text-xl">{FESTIVAL.tagline}</p>
+          <CutLetters
+            text={FESTIVAL.name}
+            className="text-[clamp(2.6rem,11vw,8.5rem)]"
+          />
+          <p className="display paper-strip text-sm tracking-[0.26em] sm:text-xl">
+            {FESTIVAL.tagline}
+          </p>
           <p className="label text-[0.65rem] sm:text-xs">
             {FESTIVAL.dates} · {FESTIVAL.place}
           </p>
           <p className="max-w-md text-sm leading-relaxed sm:text-base">
-            Drive the SIC rover around the Chronos island. Every glowing ring is an event: park on it to see the details and register. Grab the glowing nitro cans on the way to refill your boost.
+            Drive the SIC rover around the Chronos island. Every glowing ring is
+            an event: park on it to see the details and register. Grab the
+            glowing nitro cans on the way to refill your boost.
           </p>
           {status === "nogl" ? (
             <Link href="/lite" className="sticker sticker-big">
               Open the story version <Icon name="arrow" className="btn-ico" />
             </Link>
           ) : (
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              {status === "loading" ? (
-                <LoadingStage step={loadStep} />
-              ) : (
-                <button type="button" className="sticker sticker-big start-go" onClick={start}>
-                  Start the engine <Icon name="arrow" className="btn-ico" />
-                </button>
-              )}
-              <Link href="/lite" className="chip">
-                Lite version (scroll story)
-              </Link>
-            </div>
+            <>
+              <label className="name-field">
+                <span className="label text-[0.6rem]">
+                  Your name for the leaderboard
+                </span>
+                <input
+                  value={playerName}
+                  onChange={(e) => {
+                    setPlayerName(e.target.value);
+                    try {
+                      localStorage.setItem(NAME_KEY, e.target.value.trim());
+                    } catch {}
+                  }}
+                  maxLength={24}
+                  placeholder="Type your name"
+                  autoComplete="nickname"
+                  enterKeyHint="go"
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && status === "ready" && start()
+                  }
+                />
+              </label>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                {status === "loading" ? (
+                  <LoadingStage step={loadStep} />
+                ) : (
+                  <button
+                    type="button"
+                    className="sticker sticker-big start-go"
+                    onClick={start}
+                  >
+                    Start the engine <Icon name="arrow" className="btn-ico" />
+                  </button>
+                )}
+                <Link href="/lite" className="chip">
+                  Lite version (scroll story)
+                </Link>
+              </div>
+            </>
           )}
-          <p className="label text-[0.58rem] opacity-70">{touch ? "Joystick to drive · Boost button to go faster" : "W A S D or arrow keys · Shift to boost"}</p>
+          <p className="label text-[0.58rem] opacity-70">
+            {touch
+              ? "Joystick to drive · Boost button to go faster"
+              : "W A S D or arrow keys · Shift to boost"}
+          </p>
           <Credit className="start-credit" />
         </div>
       )}
 
       {flash > 0 && <div key={flash} className="shutter" aria-hidden="true" />}
       {photo && (
-        <div className="photo-modal" role="dialog" aria-modal="true" aria-labelledby="photo-title" onClick={(e) => e.target === e.currentTarget && closePhoto()}>
+        <div
+          className="photo-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="photo-title"
+          onClick={(e) => e.target === e.currentTarget && closePhoto()}
+        >
           <div className="photo-card">
             {photo.url ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={photo.url} alt="Your Chronos photo" className="photo-img" />
+              <img
+                src={photo.url}
+                alt="Your Chronos photo"
+                className="photo-img"
+              />
             ) : (
               <div className="photo-img photo-developing" aria-live="polite">
                 Developing…
@@ -1160,12 +1659,20 @@ export function World({ days }: { days: ShowDay[] }) {
               </p>
               <div className="flex flex-wrap gap-2">
                 {photo.blob && photo.share && (
-                  <button type="button" className="sticker" onClick={() => photo.blob && void sharePhoto(photo.blob)}>
+                  <button
+                    type="button"
+                    className="sticker"
+                    onClick={() => photo.blob && void sharePhoto(photo.blob)}
+                  >
                     Share
                   </button>
                 )}
                 {photo.blob && (
-                  <button type="button" className={photo.share ? "chip" : "sticker"} onClick={() => photo.blob && downloadPhoto(photo.blob)}>
+                  <button
+                    type="button"
+                    className={photo.share ? "chip" : "sticker"}
+                    onClick={() => photo.blob && downloadPhoto(photo.blob)}
+                  >
                     Download
                   </button>
                 )}
@@ -1180,30 +1687,50 @@ export function World({ days }: { days: ShowDay[] }) {
 
       {/* ------------------------------------------------------------ Finale */}
       {finale === "shown" && (
-        <div className="finale" role="dialog" aria-modal="true" aria-labelledby="finale-title">
-          <p className="label text-[0.65rem] text-gold">You visited every event</p>
+        <div
+          className="finale"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="finale-title"
+        >
+          <p className="label text-[0.65rem] text-gold">
+            You visited every event
+          </p>
           <div id="finale-title" className="flex flex-col gap-1">
             {FINAL_FRAME.map((line, i) => (
-              <p key={line} className={`display text-[clamp(2rem,6vw,5rem)] ${i === 1 ? "gold-text" : ""}`}>
+              <p
+                key={line}
+                className={`display text-[clamp(2rem,6vw,5rem)] ${i === 1 ? "gold-text" : ""}`}
+              >
                 {line}
               </p>
             ))}
           </div>
-          <p className="display text-lg tracking-[0.3em] text-gold sm:text-2xl">{FESTIVAL.tagline}</p>
+          <p className="display text-lg tracking-[0.3em] text-gold sm:text-2xl">
+            {FESTIVAL.tagline}
+          </p>
           {finishSec !== null && (
             <div className="trial">
               <div className="trial-score">
                 <p className="label text-[0.6rem]">Your time</p>
                 <p className="trial-time">{formatTime(finishSec)}</p>
                 <p className="label flex items-center gap-1 text-[0.6rem]">
-                  <Icon name="nitro" className="inline-ico" /> {gears.n} nitro {gears.n === 1 ? "can" : "cans"}
+                  <Icon name="nitro" className="inline-ico" /> {gears.n} nitro{" "}
+                  {gears.n === 1 ? "can" : "cans"}
                 </p>
               </div>
               <div className="trial-side">
                 {assisted ? (
-                  <p className="text-sm">You used fast travel, so this run can&apos;t go on the board. Reload and drive the whole way to post a time.</p>
+                  <p className="text-sm">
+                    You used fast travel, so this run can&apos;t go on the
+                    board. Reload and drive the whole way to post a time.
+                  </p>
                 ) : runState.place ? (
-                  <p className="trial-place">You&apos;re #{runState.place} on the board!</p>
+                  <p className="trial-place">
+                    You&apos;re #{runState.place} on the board!
+                  </p>
+                ) : runState.busy ? (
+                  <p className="label text-[0.65rem]">Posting your run…</p>
                 ) : (
                   <form onSubmit={postRun} className="trial-form">
                     <label htmlFor="run-name" className="label text-[0.6rem]">
@@ -1220,11 +1747,17 @@ export function World({ days }: { days: ShowDay[] }) {
                         placeholder="Your name"
                         autoComplete="nickname"
                       />
-                      <button type="submit" className="chip chip-solid" disabled={runState.busy}>
+                      <button
+                        type="submit"
+                        className="chip chip-solid"
+                        disabled={runState.busy}
+                      >
                         {runState.busy ? "…" : "Post"}
                       </button>
                     </div>
-                    {runState.error && <p className="text-xs text-[#c2361d]">{runState.error}</p>}
+                    {runState.error && (
+                      <p className="text-xs text-[#c2361d]">{runState.error}</p>
+                    )}
                   </form>
                 )}
                 {board && board.length > 0 && (
@@ -1242,20 +1775,40 @@ export function World({ days }: { days: ShowDay[] }) {
             </div>
           )}
           <div className="flex flex-wrap justify-center gap-3">
-            <a href={ALL_EVENTS_URL} className="sticker sticker-big" onClick={() => trackRegister("all", "3d-finale")}>
+            <a
+              href={ALL_EVENTS_URL}
+              className="sticker sticker-big"
+              onClick={() => trackRegister("all", "3d-finale")}
+            >
               Register now <Icon name="arrow" className="btn-ico" />
             </a>
-            <button type="button" className="chip" onClick={() => setFinale("done")}>
+            <button
+              type="button"
+              className="chip"
+              onClick={() => setFinale("done")}
+            >
               Keep driving
             </button>
           </div>
         </div>
       )}
 
-      <Customise ref={customDialog} look={look} onPick={(k, v) => setLook((prev) => ({ ...prev, [k]: v }))} onReset={() => setLook(DEFAULT_LOOK)} />
+      <Customise
+        ref={customDialog}
+        look={look}
+        onPick={(k, v) => setLook((prev) => ({ ...prev, [k]: v }))}
+        onReset={() => setLook(DEFAULT_LOOK)}
+      />
 
       {/* --------------------------------------------------------- Event list */}
-      <dialog ref={mapDialog} className="map-dialog" aria-labelledby="map-title" onClick={(e) => e.target === mapDialog.current && mapDialog.current?.close()}>
+      <dialog
+        ref={mapDialog}
+        className="map-dialog"
+        aria-labelledby="map-title"
+        onClick={(e) =>
+          e.target === mapDialog.current && mapDialog.current?.close()
+        }
+      >
         <div className="flex flex-col gap-6 p-5 sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -1264,43 +1817,86 @@ export function World({ days }: { days: ShowDay[] }) {
                 All events
               </h2>
             </div>
-            <button type="button" className="chip" onClick={() => mapDialog.current?.close()} aria-label="Close">
+            <button
+              type="button"
+              className="chip"
+              onClick={() => mapDialog.current?.close()}
+              aria-label="Close"
+            >
               <Icon name="close" />
             </button>
           </div>
           {days.map((d, di) => (
             <section key={d.number} className="flex flex-col gap-2">
-              <p className="label text-[0.62rem]" style={{ color: DAY_COLORS[di] === "#f4b536" ? "#a26d00" : DAY_COLORS[di] }}>
+              <p
+                className="label text-[0.62rem]"
+                style={{
+                  color:
+                    DAY_COLORS[di] === "#f4b536" ? "#a26d00" : DAY_COLORS[di],
+                }}
+              >
                 Day {d.number} · {d.title} · {d.date}
               </p>
               {events
                 .filter((e) => e.day === di)
                 .map((e) => (
-                  <div key={e.id} className="map-row" style={{ ["--day" as string]: DAY_COLORS[di] }}>
+                  <div
+                    key={e.id}
+                    className="map-row"
+                    style={{ ["--day" as string]: DAY_COLORS[di] }}
+                  >
                     <div className="min-w-0">
                       <p className="font-display text-base font-extrabold uppercase sm:text-lg">
-                        {live.includes(e.id) && <span className="live-badge">Live</span>}
-                        {e.name} {visited.has(e.id) && <Icon name="check" className="inline-ico" title="visited" />}
+                        {live.includes(e.id) && (
+                          <span className="live-badge">Live</span>
+                        )}
+                        {e.name}{" "}
+                        {visited.has(e.id) && (
+                          <Icon
+                            name="check"
+                            className="inline-ico"
+                            title="visited"
+                          />
+                        )}
                       </p>
-                      <p className="label text-[0.58rem] opacity-70">{[e.venue, time(e.startsAt), e.team].filter(Boolean).join(" · ")}</p>
+                      <p className="label text-[0.58rem] opacity-70">
+                        {[e.venue, time(e.startsAt), e.team]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     </div>
                     <div className="flex shrink-0 gap-2">
                       {status !== "nogl" && (
-                        <button type="button" className="chip" onClick={() => goTo(e.id)}>
+                        <button
+                          type="button"
+                          className="chip"
+                          onClick={() => goTo(e.id)}
+                        >
                           Drive there
                         </button>
                       )}
                       {e.detailsUrl && (
-                        <a className="chip" href={e.detailsUrl} target="_blank" rel="noopener noreferrer">
+                        <a
+                          className="chip"
+                          href={e.detailsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
                           Details
                         </a>
                       )}
                       {e.registerUrl ? (
-                        <a className="chip chip-solid" href={e.registerUrl} onClick={() => trackRegister(e.name, "3d-list")}>
+                        <a
+                          className="chip chip-solid"
+                          href={e.registerUrl}
+                          onClick={() => trackRegister(e.name, "3d-list")}
+                        >
                           Register
                         </a>
                       ) : (
-                        <span className="label self-center text-[0.58rem] opacity-60">Opens soon</span>
+                        <span className="label self-center text-[0.58rem] opacity-60">
+                          Opens soon
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1310,7 +1906,14 @@ export function World({ days }: { days: ShowDay[] }) {
         </div>
       </dialog>
 
-      <dialog ref={boardDialog} className="map-dialog" aria-labelledby="board-title" onClick={(e) => e.target === boardDialog.current && boardDialog.current?.close()}>
+      <dialog
+        ref={boardDialog}
+        className="map-dialog"
+        aria-labelledby="board-title"
+        onClick={(e) =>
+          e.target === boardDialog.current && boardDialog.current?.close()
+        }
+      >
         <div className="flex flex-col gap-5 p-5 sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -1319,24 +1922,71 @@ export function World({ days }: { days: ShowDay[] }) {
                 Leaderboard
               </h2>
             </div>
-            <button type="button" className="chip" onClick={() => boardDialog.current?.close()} aria-label="Close">
+            <button
+              type="button"
+              className="chip"
+              onClick={() => boardDialog.current?.close()}
+              aria-label="Close"
+            >
               <Icon name="close" />
             </button>
           </div>
           <p className="text-sm leading-relaxed">
-            Visit all {events.length} events as fast as you can, driving the whole way (no fast travel), then post your time on the finish screen.
+            Visit all {events.length} events as fast as you can, without fast
+            travel. The clock starts on your first move, and your run goes on
+            the board by itself when you finish.
           </p>
-          {lb.state === "loading" && <p className="label text-[0.65rem]">Loading…</p>}
-          {lb.state === "off" && <p className="text-sm">The leaderboard isn&apos;t live yet. Check back soon.</p>}
-          {lb.state === "ready" && lb.runs.length === 0 && <p className="text-sm">No times yet. Be the first on the board!</p>}
+          <span
+            className="time-pick speed-pick board-sort"
+            role="radiogroup"
+            aria-label="Sort the leaderboard"
+          >
+            {(
+              [
+                ["time", "Fastest"],
+                ["nitro", "Most nitro cans"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={lbSort === id}
+                className={lbSort === id ? "is-on" : ""}
+                onClick={() => sortBoard(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
+          {lb.state === "loading" && (
+            <p className="label text-[0.65rem]">Loading…</p>
+          )}
+          {lb.state === "off" && (
+            <p className="text-sm">
+              The leaderboard isn&apos;t live yet. Check back soon.
+            </p>
+          )}
+          {lb.state === "ready" && lb.runs.length === 0 && (
+            <p className="text-sm">No times yet. Be the first on the board!</p>
+          )}
           {lb.state === "ready" && lb.runs.length > 0 && (
             <ol className="board-list">
               {lb.runs.map((r) => (
-                <li key={`${r.place}-${r.name}`} className={r.place <= 3 ? `top-${r.place}` : ""}>
+                <li
+                  key={`${r.place}-${r.name}`}
+                  className={r.place <= 3 ? `top-${r.place}` : ""}
+                >
                   <span className="board-place">#{r.place}</span>
                   <span className="truncate">{r.name}</span>
-                  <span className="board-time">{formatTime(r.seconds)}</span>
-                  <span className="label flex items-center gap-1 text-[0.55rem] opacity-60">
+                  <span
+                    className={`board-time ${lbSort === "time" ? "" : "opacity-60"}`}
+                  >
+                    {formatTime(r.seconds)}
+                  </span>
+                  <span
+                    className={`label flex items-center gap-1 ${lbSort === "nitro" ? "board-time" : "text-[0.55rem] opacity-60"}`}
+                  >
                     <Icon name="nitro" className="inline-ico" /> {r.gears}
                   </span>
                 </li>
