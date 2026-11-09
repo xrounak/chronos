@@ -3178,19 +3178,27 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       dur: 6,
       fov: 38,
       setup: () => {
+        // The sharpest bend ahead whose inside has nothing in the way of the camera
+        // (houses, trees, stalls); failing that, film it from the beach side.
         const s0 = racers[0].s;
+        const clear = (x: number, z: number) => !colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 6);
         let best = -1;
-        let bs = s0 + 80;
+        let pick: [number, number] | null = null;
+        let beach: [number, number] = [0, 0];
         for (let s = s0 + 60; s < s0 + 125; s += 2.5) {
-          const k = Math.abs(loopAt(s).k);
-          if (k > best) {
-            best = k;
-            bs = s;
+          const q = loopAt(s);
+          const side = q.k >= 0 ? 1 : -1;
+          const off = (RING_HALF + 3.5) * side;
+          const x = q.x + q.nx * off;
+          const z = q.z + q.nz * off;
+          if (best < 0) beach = [q.x + q.nx * (RING_HALF + 3.5), q.z + q.nz * (RING_HALF + 3.5)];
+          if (Math.abs(q.k) > best && clear(x, z) && clear((x + q.x) / 2, (z + q.z) / 2)) {
+            best = Math.abs(q.k);
+            pick = [x, z];
           }
         }
-        const q = loopAt(bs);
-        const off = (RING_HALF + 3.5) * (q.k >= 0 ? 1 : -1);
-        camAt(q.x + q.nx * off, q.z + q.nz * off, 0.9);
+        const [cx, cz] = pick ?? beach;
+        camAt(cx, cz, 0.9);
       },
       cam: () => {
         const p = racers[0].v.group.position;

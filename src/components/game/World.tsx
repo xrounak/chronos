@@ -1580,16 +1580,9 @@ export function World({ days }: { days: ShowDay[] }) {
               <b>{String(shot.n + 1).padStart(2, "0")}</b> {shot.title}
             </p>
           )}
-          <span className="start-ghost" aria-hidden="true">
-            2026
-          </span>
-          <p className="start-note start-note-a" aria-hidden="true">
-            built by SIC, for everyone ✦
-          </p>
-          <p className="start-note start-note-b" aria-hidden="true">
-            {events.length} events · 3 days · 1 island
-          </p>
-          <p className="label text-[0.62rem] sm:text-xs">
+          {/* Title up top, controls at the bottom: the middle stays clear for the intro film */}
+          <div className="start-top">
+          <p className="label start-tag text-[0.62rem] sm:text-xs">
             Science &amp; Innovation Club · GEC Palamu presents
           </p>
           <h1 className="sr-only">CHRONOS {FESTIVAL.year}</h1>
@@ -1600,15 +1593,11 @@ export function World({ days }: { days: ShowDay[] }) {
           <p className="display paper-strip text-sm tracking-[0.26em] sm:text-xl">
             {FESTIVAL.tagline}
           </p>
-          <p className="label text-[0.65rem] sm:text-xs">
-            {FESTIVAL.dates} · {FESTIVAL.place}
+          <p className="label start-tag start-dates text-[0.65rem] sm:text-xs">
+            {FESTIVAL.dates} · {FESTIVAL.place} · {events.length} events
           </p>
-          <p className="max-w-md text-sm leading-relaxed sm:text-base">
-            Drive the SIC rover around the Chronos island. Every glowing ring is
-            an event: park on it to see the details and register. Grab the
-            glowing nitro cans on the way to refill your boost, or race the
-            coast loop road round the island, where nitro never runs out.
-          </p>
+          </div>
+          <div className="start-bottom">
           {status === "nogl" ? (
             <Link href="/lite" className="sticker sticker-big">
               Open the story version <Icon name="arrow" className="btn-ico" />
@@ -1617,7 +1606,7 @@ export function World({ days }: { days: ShowDay[] }) {
             <>
               <label className={`name-field ${nameError ? "is-error" : ""}`}>
                 <span className="label text-[0.6rem]">
-                  Your name (needed to play)
+                  <span className="start-tag">Your name (needed to play)</span>
                 </span>
                 <input
                   ref={nameInput}
@@ -1665,12 +1654,13 @@ export function World({ days }: { days: ShowDay[] }) {
               </div>
             </>
           )}
-          <p className="label text-[0.58rem] opacity-70">
+          <p className="label start-tag start-keys text-[0.58rem]">
             {touch
               ? "Joystick to drive · Boost button to go faster"
               : "W A S D or arrow keys · Shift to boost"}
           </p>
           <Credit className="start-credit" />
+          </div>
         </div>
       )}
 
