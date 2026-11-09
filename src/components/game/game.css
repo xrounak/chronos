@@ -3232,7 +3232,7 @@
     width: 14rem;
   }
   .start-bottom .start-credit {
-    flex-basis: 100%;
+    max-width: max-content;
   }
 }
 
