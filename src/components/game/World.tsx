@@ -369,6 +369,7 @@ export function World({ days }: { days: ShowDay[] }) {
           id: e.id,
           day: e.day,
           name: e.name,
+          prop: e.prop,
           kind: String(e.kind),
           tag: `Day ${e.dayNumber} · ${KIND[e.kind] ?? "Event"}`,
         }));
@@ -1780,7 +1781,7 @@ export function World({ days }: { days: ShowDay[] }) {
               className="sticker sticker-big"
               onClick={() => trackRegister("all", "3d-finale")}
             >
-              Register now <Icon name="arrow" className="btn-ico" />
+              See all events <Icon name="arrow" className="btn-ico" />
             </a>
             <button
               type="button"

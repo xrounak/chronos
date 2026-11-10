@@ -16,6 +16,8 @@ export type ZoneDef = {
   day: number;
   name: string;
   kind: string;
+  /** What to build here; falls back to the name. */
+  prop?: string;
   /** Short label drawn above the landmark. */
   tag: string;
 };
@@ -1000,8 +1002,8 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       g.position.set(lx, terrain(lx, lz), lz);
       g.rotation.y = -a - Math.PI / 2;
       scene.add(g);
-      const spin = landmark(z.kind, z.name, DAY_COLORS[d], g);
-      const n = z.name.toLowerCase();
+      const spin = landmark(z.kind, z.prop ?? z.name, DAY_COLORS[d], g);
+      const n = (z.prop ?? z.name).toLowerCase();
       if (!(n.includes("soccer") || n.includes("boat") || n.includes("hurdle"))) colliders.push({ x: lx, z: lz, r: 4.4 });
       addLabel(z.tag, z.name, DAY_COLORS[d], lx, g.position.y + 9, lz, 2.7);
       const liveTag = new THREE.Sprite(keepMat(new THREE.SpriteMaterial({ map: liveTex, depthWrite: false })));
@@ -4280,7 +4282,7 @@ export function startWorld(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement
       } else beamMat.opacity = Math.min(0.6, (on ? 0.32 + Math.sin(t * 6) * 0.06 : 0.12) * nightBoost);
       z.ring.rotation.z = t * (on ? 1.5 : 0.3);
       if (z.spin) {
-        const n = z.name.toLowerCase();
+        const n = (z.prop ?? z.name).toLowerCase();
         if (n.includes("jet")) z.spin.rotation.y = t * 0.5;
         else if (n.includes("war")) z.spin.rotation.y = Math.sin(t * 1.3) * 0.8;
         else if (n.includes("boat")) z.spin.rotation.y = t * 0.4;

@@ -58,14 +58,9 @@ export function DayTabs({ days }: { days: ShowDay[] }) {
               <p className="label text-[0.6rem]">{KIND[e.kind] ?? "Event"}</p>
               <h3 className="event-tile-title">{e.name}</h3>
               <p className="label text-[0.58rem] opacity-70">{[e.venue, time(e.startsAt), e.team].filter(Boolean).join(" · ")}</p>
-              {e.detailsUrl && (
-                <a href={e.detailsUrl} className="event-tile-details" target="_blank" rel="noopener noreferrer">
-                  View details &amp; rule book →
-                </a>
-              )}
               {e.registerUrl ? (
                 <a href={e.registerUrl} className="sticker event-tile-cta" onClick={() => trackRegister(e.name, "lite-day")}>
-                  Register →
+                  See details →
                 </a>
               ) : (
                 <a href={ALL_EVENTS_URL} className="sticker sticker-quiet event-tile-cta">

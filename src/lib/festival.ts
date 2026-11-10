@@ -24,6 +24,8 @@ export type ProgramItem = {
   match: string[];
   /** Photo in public/photos, shown beside the event. */
   photo?: string;
+  /** What the 3D island builds at this event (a pitch, a water tank...); the name can change freely. */
+  prop?: string;
 };
 
 export type Day = {
@@ -50,7 +52,7 @@ export const DAYS: Day[] = [
     program: [
       { name: "Expert Talks & Inauguration", venue: "Auditorium", kind: "talk", match: ["expert talk", "inauguration"], photo: "speaker.webp" },
       { name: "Exhibition", venue: "Parking Lot", kind: "exhibition", match: ["exhibition"], photo: "exhibit-towers.webp" },
-      { name: "Robo Soccer", venue: "Ground", kind: "competition", match: ["robo soccer", "robosoccer"], photo: "robo-soccer.webp" },
+      { name: "Elytra Kick", venue: "Ground", kind: "competition", match: ["elytra kick", "robo soccer", "robosoccer"], photo: "robo-soccer.webp", prop: "robo soccer" },
     ],
   },
   {
@@ -62,9 +64,9 @@ export const DAYS: Day[] = [
     body: "This is where ideas are put to the test. Teams compete, technology comes alive and boundaries are challenged.",
     closer: "Think fast. Build smart. Push further.",
     program: [
-      { name: "Hackathon", venue: "Seminar Hall 1", kind: "hackathon", match: ["hackathon"], photo: "hackathon.webp" },
+      { name: "Trial Chambers", venue: "Seminar Hall 1", kind: "hackathon", match: ["trial chambers", "hackathon"], photo: "hackathon.webp", prop: "hackathon" },
       { name: "Fighter Jet Simulation Exhibition", venue: "With an Army officer", kind: "experience", match: ["fighter jet", "jet simulation"] },
-      { name: "Hurdle Race", venue: "Ground", kind: "competition", match: ["hurdle"] },
+      { name: "Pillager's Parkour", venue: "Ground", kind: "competition", match: ["pillager", "hurdle"], prop: "hurdle race" },
     ],
   },
   {
@@ -76,9 +78,9 @@ export const DAYS: Day[] = [
     body: "The final chapter isn't an ending. It's proof of what happens when people dare to build beyond limits.",
     closer: "Three days of ambition. One final call to make it count.",
     program: [
-      { name: "Build Beyond Limits", venue: "1st Floor Open Area", kind: "exhibition", match: ["build beyond limits"], photo: "farm-rover.webp" },
-      { name: "Boat Race", venue: "Ground", kind: "competition", match: ["boat race"], photo: "boat-race.webp" },
-      { name: "Robo War", venue: "Ground", kind: "competition", match: ["robo war", "robowar"], photo: "robo-war.webp" },
+      { name: "Creative Mode", venue: "1st Floor Open Area", kind: "exhibition", match: ["creative mode", "build beyond limits"], photo: "farm-rover.webp", prop: "build beyond limits" },
+      { name: "Marine Rush", venue: "Ground", kind: "competition", match: ["marine rush", "boat race"], photo: "boat-race.webp", prop: "boat race" },
+      { name: "Nether Clash", venue: "Ground", kind: "competition", match: ["nether clash", "robo war", "robowar"], photo: "robo-war.webp", prop: "robo war" },
     ],
   },
 ];

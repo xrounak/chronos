@@ -136,16 +136,11 @@ export function IslandMap({ days }: { days: ShowDay[] }) {
             <div className="flex flex-wrap gap-2 pt-1">
               {cur.registerUrl ? (
                 <a href={cur.registerUrl} className="sticker" onClick={() => trackRegister(cur.name, "lite-map")}>
-                  Register →
+                  See details →
                 </a>
               ) : (
                 <a href={ALL_EVENTS_URL} className="sticker sticker-quiet">
                   Opens soon
-                </a>
-              )}
-              {cur.detailsUrl && (
-                <a href={cur.detailsUrl} className="chip" target="_blank" rel="noopener noreferrer">
-                  Rule book
                 </a>
               )}
               <Link href="/" className="chip">

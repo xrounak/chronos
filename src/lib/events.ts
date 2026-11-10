@@ -35,6 +35,8 @@ export type ShowEvent = {
   detailsUrl: string | null;
   team: string | null;
   photo: string | null;
+  /** What the 3D island builds here (see ProgramItem.prop). */
+  prop?: string;
 };
 
 export type ShowDay = Omit<Day, "program"> & { events: ShowEvent[] };
@@ -95,6 +97,7 @@ export async function getFestival(): Promise<ShowDay[]> {
         detailsUrl: detailsUrl(found?.slug ?? null),
         team: found ? teamLabel(found) : null,
         photo: item.photo ?? null,
+        prop: item.prop,
       };
     }),
   }));

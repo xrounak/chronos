@@ -60,7 +60,7 @@ export default async function LitePage() {
             Play 3D
           </Link>
           <a href="#programme" className="chip chip-solid">
-            Register
+            Events
           </a>
         </nav>
       </header>
@@ -172,11 +172,11 @@ export default async function LitePage() {
         </div>
         <TrackedLink href={ALL_EVENTS_URL} event="all" from="lite-ticket" className="ticket">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/collage/ticket.svg" alt="Register: see all Chronos events on sic.gecp.in" draggable={false} />
+          <img src="/collage/ticket.svg" alt="See all Chronos events on sic.gecp.in" draggable={false} />
         </TrackedLink>
         <div className="hero-actions">
           <TrackedLink href={ALL_EVENTS_URL} event="all" from="lite-final" className="sticker sticker-big">
-            Register now →
+            See all events →
           </TrackedLink>
           <Link href="/" className="chip">
             Play the 3D island
