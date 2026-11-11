@@ -53,6 +53,8 @@ export const DAYS: Day[] = [
       { name: "Expert Talks & Inauguration", venue: "Auditorium", kind: "talk", match: ["expert talk", "inauguration"], photo: "speaker.webp" },
       { name: "Exhibition", venue: "Parking Lot", kind: "exhibition", match: ["exhibition"], photo: "exhibit-towers.webp" },
       { name: "Elytra Kick", venue: "Ground", kind: "competition", match: ["elytra kick", "robo soccer", "robosoccer"], photo: "robo-soccer.webp", prop: "robo soccer" },
+      // runs across all three days: film the festival, submit one reel within a week
+      { name: "Spectator Mode", venue: "Across the campus", kind: "competition", match: ["spectator mode", "reel"], prop: "reel contest" },
     ],
   },
   {
