@@ -20,7 +20,7 @@ const hand = VT323({ subsets: ["latin"], weight: "400", variable: "--font-pixel-
 
 const title = `CHRONOS ${FESTIVAL.year} · ${FESTIVAL.tagline}`;
 const description =
-  "Chronos 2026, 11 to 13 December at GEC Palamu: expert talks, exhibitions, a hackathon, Robo Soccer, Robo War and more. Three days celebrating what students build. By the Science & Innovation Club.";
+  "Chronos 2026, 11 to 13 December at GEC Palamu: exhibitions, a hackathon, Robo Soccer, Robo War and more. Three days celebrating what students build. By the Science & Innovation Club.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

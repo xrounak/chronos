@@ -50,10 +50,9 @@ export const DAYS: Day[] = [
     body: "The gates open. New perspectives emerge. The first sparks of inspiration turn into conversations, discoveries and possibilities.",
     closer: "The beginning of something bigger.",
     program: [
-      { name: "Expert Talks & Inauguration", venue: "Auditorium", kind: "talk", match: ["expert talk", "inauguration"], photo: "speaker.webp" },
       { name: "Exhibition", venue: "Parking Lot", kind: "exhibition", match: ["exhibition"], photo: "exhibit-towers.webp" },
       { name: "Elytra Kick", venue: "Ground", kind: "competition", match: ["elytra kick", "robo soccer", "robosoccer"], photo: "robo-soccer.webp", prop: "robo soccer" },
-      // runs across all three days: film the festival, submit one reel within a week
+      // runs across all three days: film the festival, submit one reel by 2:00 pm on 14 Dec
       { name: "Spectator Mode", venue: "Across the campus", kind: "competition", match: ["spectator mode", "reel"], prop: "reel contest" },
     ],
   },

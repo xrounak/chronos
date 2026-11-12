@@ -75,7 +75,7 @@ export default async function LitePage() {
             </h1>
             <CutLetters text={FESTIVAL.name} className="hero-letters" />
             <p className="display paper-strip hero-tagline">{FESTIVAL.tagline}</p>
-            <p className="hero-lead">Three days of talks, builds, races and robot fights. Pick your events and register on the SIC website.</p>
+            <p className="hero-lead">Three days of builds, races and robot fights. Pick your events and register on the SIC website.</p>
             <div className="hero-actions">
               <a href="#programme" className="sticker sticker-big">
                 See the programme →

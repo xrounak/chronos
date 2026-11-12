@@ -29,7 +29,7 @@ function festivalLd(days: ShowDay[]) {
     "@context": "https://schema.org",
     "@type": "Festival",
     name: `CHRONOS ${FESTIVAL.year}`,
-    description: "Three days of expert talks, exhibitions, a hackathon and robotics competitions at GEC Palamu.",
+    description: "Three days of exhibitions, a hackathon and robotics competitions at GEC Palamu.",
     url: SITE_URL,
     image: `${SITE_URL}/opengraph-image`,
     startDate: FESTIVAL.startsAt,
